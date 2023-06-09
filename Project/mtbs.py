@@ -74,7 +74,7 @@ def extract_gridmet_data(df, gm_name):
         df = gpd.GeoDataFrame(df)
     feat = Vector(df, len(df))
     rdf = (
-        zonal.point_extraction(feat, rs, skip_validation=True)
+        zonal.extract_points_eager(feat, rs, skip_validation=True)
         .drop(columns=["band"])
         .rename(columns={"extracted": gm_name})
         .compute()
@@ -96,7 +96,7 @@ def extract_dem_data(df, key):
         df = gpd.GeoDataFrame(df)
     feat = Vector(df, len(df))
     rdf = (
-        zonal.point_extraction(feat, rs, skip_validation=True)
+        zonal.extract_points_eager(feat, rs, skip_validation=True)
         .drop(columns=["band"])
         .compute()
     )

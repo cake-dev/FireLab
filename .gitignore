@@ -160,4 +160,11 @@ cython_debug/
 #.idea/
 
 
-Project/data/*
+Project/data/FeatureData/biomass/*.nc
+Project/data/FeatureData/adaptwest
+Project/data/FeatureData/daymet
+Project/data/FeatureData/gridmet
+Project/data/FeatureData/landfire
+Project/data/FeatureData/ndvi
+Project/data/MTBS_Data
+Project/data/terrain
