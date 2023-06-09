@@ -161,10 +161,10 @@ cython_debug/
 
 
 Project/data/FeatureData/biomass/*.nc
-Project/data/FeatureData/adaptwest
-Project/data/FeatureData/daymet
-Project/data/FeatureData/gridmet
-Project/data/FeatureData/landfire
-Project/data/FeatureData/ndvi
+Project/data/FeatureData/adaptwest/*.tif
+Project/data/FeatureData/daymet/*.nc
+Project/data/FeatureData/gridmet/*.nc
+Project/data/FeatureData/landfire/*.tif
+Project/data/FeatureData/ndvi/*.nc
 Project/data/MTBS_Data
 Project/data/terrain
