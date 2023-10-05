@@ -29,13 +29,14 @@ warnings.filterwarnings(
 
 
 # Location for temporary storage
-TMP_LOC = "/home/jake/Project/data/temp/"
+TMP_LOC = "/home/jake/FireLab/Project/data/temp/"
+DATA_LOC = "/home/jake/FireLab/Project/data/"
 
-STATE = "MT"
+STATE = "OR"
 
 
-def get_gridmet_var_name(ds):
-    # Find the data variable in a gridmet xarray.Dataset
+def get_nc_var_name(ds):
+    # Find the data variable in a nc xarray.Dataset
     var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
     return var_name
 
@@ -49,7 +50,7 @@ def netcdf_to_raster(path, date):
     #gridmet_ds.rio.write_crs(ds_crs)
     gridmet_ds = gridmet_ds.rio.write_crs(gridmet_ds.crs.spatial_ref)
     # Find variable name
-    var_name = get_gridmet_var_name(gridmet_ds)
+    var_name = get_nc_var_name(gridmet_ds)
     # Extract
     var_da = gridmet_ds[var_name]
     var_da = var_da.sel(day=date, method="nearest")
@@ -62,7 +63,7 @@ def netcdf_to_raster(path, date):
     return Raster(xrs)
 
 
-def extract_gridmet_data(df, gm_name):
+def extract_nc_data(df, gm_name):
     assert df.ig_date.unique().size == 1
     # print(f"{gm_name}: {df.columns = }, {len(df) = }")
     date = df.ig_date.values[0]
@@ -103,7 +104,7 @@ def extract_dem_data(df, key):
     df[key].values[:] = rdf.extracted.values
     return df
 
-def extract_landfire_data(df, key):
+def extract_tif_data(df, key):
     state = df.state.values[0]
     path = pjoin(PRISM_DIR,"Normal_1991_2020_monthly/tmax", "1991_2020_tmaxnormals.tif")
     rs = Raster(path)
@@ -119,14 +120,14 @@ def extract_landfire_data(df, key):
     return df
 
 
-def partition_extract_gridmet(df, key):
-    # This func wraps extract_gridmet_data. It groups the partition in to sub
-    # dataframes with the same date and then applies extract_gridmet_data to
+def partition_extract_nc(df, key):
+    # This func wraps extract_nc_data. It groups the partition in to sub
+    # dataframes with the same date and then applies extract_nc_data to
     # each and reassembles the results into an output dataframe.
     parts = []
     for group in df.groupby("ig_date", sort=True):
         _, gdf = group
-        parts.append(extract_gridmet_data(gdf, key))
+        parts.append(extract_nc_data(gdf, key))
     return pd.concat(parts)
 
 
@@ -254,33 +255,32 @@ EDNA_DIR = pjoin(DATA_LOC, "terrain")
 MTBS_DIR = pjoin(DATA_LOC, "MTBS_Data")
 
 PATHS = {
-    "states": pjoin(FEATURE_DIR, "state_borders/cb_2018_us_state_5m.shp"),
-    "dem": pjoin(EDNA_DIR, "us_orig_dem/orig_dem/hdr.adf"),
-    "dem_slope": pjoin(EDNA_DIR, "us_slope/slope/hdr.adf"),
+    "states": pjoin(EDNA_DIR, "state_borders/cb_2018_us_state_5m.shp"),
+    "dem": pjoin(EDNA_DIR, "us_orig_dem/us_orig_dem/orig_dem/hdr.adf"),
+    "dem_slope": pjoin(EDNA_DIR, "us_slope/us_slope/slope/hdr.adf"),
     "dem_aspect": pjoin(EDNA_DIR, "us_aspect/aspect/hdr.adf"),
-    "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/flow_acc/hdr.adf"),
-    "gm_pdsi": pjoin(FEATURE_DIR, "gridmet/pdsi_weekly.nc"),
-    "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_weekly.nc"),
+    "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/us_flow_acc/flow_acc/hdr.adf"),
+    "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_1986-2020_weekly.nc"),
     "gm_vpd": pjoin(FEATURE_DIR, "gridmet/vpd_1984-2020_weekly.nc"),
     "aw_mat": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MAT.tif"),
     "aw_mcmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MCMT.tif"),
     "aw_mwmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MWMT.tif"),
     "aw_td": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_TD.tif"),
-    "dm_tmax": pjoin(FEATURE_DIR, "daymet/tmax_monthavg/dm_tmax_1986_2020.nc"),
-    "dm_tmin": pjoin(FEATURE_DIR, "daymet/tmin_monthavg/dm_tmin_1986_2020.nc"),
-    "biomass_afg": pjoin(
-        FEATURE_DIR, "biomass/1986_2020_biomass_afg_{}.nc".format(STATE.lower())
-    ),
-    "biomass_pfg": pjoin(
-        FEATURE_DIR, "biomass/1986_2020_biomass_pfg_{}.nc".format(STATE.lower())
-    ),
+    "dm_tmax": pjoin(FEATURE_DIR, "daymet/tmax_1986_2020.nc"),
+    "dm_tmin": pjoin(FEATURE_DIR, "daymet/tmin_1986_2020.nc"),
+    # "biomass_afg": pjoin(
+    #     FEATURE_DIR, "biomass/1986_2020_biomass_afg_{}.nc".format(STATE.lower())
+    # ),
+    # "biomass_pfg": pjoin(
+    #     FEATURE_DIR, "biomass/1986_2020_biomass_pfg_{}.nc".format(STATE.lower())
+    # ),
     "landfire_fvt": pjoin(
         FEATURE_DIR, "landfire/LF2020_FVT_200_CONUS/Tif/LC20_FVT_200.tif"
     ),
     "landfire_fbfm40": pjoin(
         FEATURE_DIR, "landfire/LF2020_FBFM40_200_CONUS/Tif/LC20_F40_200.tif"
     ),
-    "ndvi": pjoin(FEATURE_DIR, "ndvi/1985_2020_ndvi_weekly.nc"),
+    "ndvi": pjoin(FEATURE_DIR, "ndvi/access/weekly/ndvi_1986_2020_weekavg.nc"),
     "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
     "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
 }
@@ -288,7 +288,7 @@ YEARS = list(range(1986, 2021))
 GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
 DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS))
-BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS))
+# BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS))
 LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
 NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS))
 DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
@@ -297,42 +297,46 @@ DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
 
 if __name__ == "__main__":
 
-    # State borders
-    stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
-    states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
-    state_shape = states[STATE]
-    states = None
-    stdf = None
+    # # State borders
+    # print("Loading state borders")
+    # stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
+    # states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
+    # state_shape = states[STATE]
+    # states = None
+    # stdf = None
 
-    # MTBS Perimeters
-    perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
-    state_fire_perims = perimdf.clip(state_shape.compute())
-    state_fire_perims = (
-        state_fire_perims.assign(
-            Ig_Date=lambda frame: dd.to_datetime(
-                frame.Ig_Date, format="%Y-%m-%d"
-            )
-        )
-        .sort_values("Ig_Date")
-        .compute()
-    )
-    year_to_perims = {
-        y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
-        for y in YEARS
-    }
-    state_fire_perims = None
+    # # MTBS Perimeters
+    # print("Loading MTBS perimeters")
+    # perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
+    # state_fire_perims = perimdf.clip(state_shape.compute())
+    # state_fire_perims = (
+    #     state_fire_perims.assign(
+    #         Ig_Date=lambda frame: dd.to_datetime(
+    #             frame.Ig_Date, format="%Y-%m-%d"
+    #         )
+    #     )
+    #     .sort_values("Ig_Date")
+    #     .compute()
+    # )
+    # year_to_perims = {
+    #     y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
+    #     for y in YEARS
+    # }
+    # state_fire_perims = None
 
-    year_to_mtbs_file = {
-        y: pjoin(pjoin(PATHS["mtbs_root"], str(y)), f"mtbs_{STATE}_{y}.tif")
-        for y in YEARS
-    }
+    # year_to_mtbs_file = {
+    #     y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
+    #     for y in YEARS
+    # }
+
+    # print(year_to_mtbs_file)
 
     mtbs_df_path = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
     mtbs_df_temp_path = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
     checkpoint_1_path = pjoin(TMP_LOC, "check1")
     checkpoint_2_path = pjoin(TMP_LOC, "check2")
 
-    if 1:
+    if 0:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
@@ -341,34 +345,30 @@ if __name__ == "__main__":
             STATE,
             out_path=mtbs_df_path,
         )
-        df = add_columns_to_df(
-            df, GM_KEYS, partition_extract_gridmet, checkpoint_1_path
-        )
-        df = df.repartition(partition_size="100MB").reset_index(drop=True)
-        print("Repartitioning")
-        with ProgressBar():
-            df.to_parquet(checkpoint_2_path)
-
-    if 0:
-        df = dgpd.read_parquet(mtbs_df_path)
+        # df = add_columns_to_df(
+        #     df, GM_KEYS, partition_extract_gridmet, checkpoint_1_path
+        # )
         clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
         df = add_columns_to_df(
             df,
             DEM_KEYS,
             extract_dem_data,
-            mtbs_df_temp_path,
+            checkpoint_1_path,
             # Save results in serial to avoid segfaulting. Something about the
             # dem computations makes segfaults extremely likely when saving
             # The computations require a lot of memory which may be what
             # triggers the fault.
             parallel=False,
         )
+        df = df.repartition(partition_size="100MB").reset_index(drop=True)
+        print("Repartitioning")
+        with ProgressBar():
+            df.to_parquet(checkpoint_2_path)
 
-    if 0:
+    if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(mtbs_df_path)
-        # NOTE: DM KEYS adding to DF on {date}
+            df = dgpd.read_parquet(checkpoint_2_path)
         df = add_columns_to_df(
             df, DM_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
         )
@@ -392,3 +392,7 @@ if __name__ == "__main__":
         with ProgressBar():
             # df.to_parquet(mtbs_df_temp_path)
             df.to_parquet(mtbs_df_temp_path)
+
+
+
+# TODO ADD UNIQUE IDENTIFIER TO EACH PIXEL AFTER DF IS COMPLETE
