@@ -37,38 +37,51 @@ STATE = "OR"
 
 def get_nc_var_name(ds):
     # Find the data variable in a nc xarray.Dataset
-    var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
+    # var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
+    var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[1]
     return var_name
 
 
 def netcdf_to_raster(path, date):
     # This produces a Dataset. We need to grab the DataArray inside that
     # contains the data of interest.
-    gridmet_ds = xr.open_dataset(path, chunks={"day": 1})#, decode_times=False)
+    nc_ds = xr.open_dataset(path, chunks={"day": 1})#, decode_times=False)
+    nc_ds = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
+    nc_ds = nc_ds.rio.write_crs(
+        nc_ds.coords["lambert_conformal_conic"].spatial_ref
+    )  # FOR DAYMET ONLY!!
+    nc_ds = nc_ds.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
+    nc_ds2 = nc_ds.drop_vars(["lat", "lon"])  # FOR DAYMET ONLY!!
+    nc_ds = None
+    nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
     # comment lines below for normal operation
     #ds_crs = CRS.from_epsg(5071)
-    #gridmet_ds.rio.write_crs(ds_crs)
-    gridmet_ds = gridmet_ds.rio.write_crs(gridmet_ds.crs.spatial_ref)
+    #nc_ds.rio.write_crs(ds_crs)
+    nc_ds2 = nc_ds2.rio.write_crs(nc_ds2.crs.spatial_ref)
+    # print nc_ds dimensions
+    # print(f"{nc_ds.dims = }")
     # Find variable name
-    var_name = get_nc_var_name(gridmet_ds)
+    var_name = get_nc_var_name(nc_ds2)
+    # print(f"var_name: {var_name}")
     # Extract
-    var_da = gridmet_ds[var_name]
-    var_da = var_da.sel(day=date, method="nearest")
+    var_da = nc_ds2[var_name]
+    # print(f"{var_da = }")
+    var_da = var_da.sel(time=date, method="nearest")
     xrs = xr.DataArray(
         var_da.data, dims=("y", "x"), coords=(var_da.lat.data, var_da.lon.data)
     ).expand_dims("band")
     xrs["band"] = [1]
     # Set CRS in raster compliant format
-    xrs = xrs.rio.write_crs(gridmet_ds.crs.spatial_ref)
+    xrs = xrs.rio.write_crs(nc_ds2.crs.spatial_ref)
     return Raster(xrs)
 
 
-def extract_nc_data(df, gm_name):
+def extract_nc_data(df, nc_name):
     assert df.ig_date.unique().size == 1
     # print(f"{gm_name}: {df.columns = }, {len(df) = }")
     date = df.ig_date.values[0]
-    print(f"{gm_name}: starting {date}")
-    rs = netcdf_to_raster(PATHS[gm_name], date)
+    print(f"{nc_name}: starting {date}")
+    rs = netcdf_to_raster(PATHS[nc_name], date)
     bounds = gpd.GeoSeries(df.geometry).to_crs(rs.crs).total_bounds
     rs = clipping.clip_box(rs, bounds)
     if type(df) == pd.DataFrame:
@@ -77,11 +90,11 @@ def extract_nc_data(df, gm_name):
     rdf = (
         zonal.extract_points_eager(feat, rs, skip_validation=True)
         .drop(columns=["band"])
-        .rename(columns={"extracted": gm_name})
+        .rename(columns={"extracted": nc_name})
         .compute()
     )
-    df[gm_name].values[:] = rdf[gm_name].values
-    # print(f"{gm_name}: finished {date}")
+    df[nc_name].values[:] = rdf[nc_name].values
+    # print(f"{nc_name}: finished {date}")
     return df
 
 
@@ -395,4 +408,5 @@ if __name__ == "__main__":
 
 
 
-# TODO ADD UNIQUE IDENTIFIER TO EACH PIXEL AFTER DF IS COMPLETE
+# TODO ADD UNIQUE IDENTIFIER TO EACH PIXEL
+# TODO add fire ID to each pixel (should be in MTBS data somewhere)

@@ -10,3 +10,5 @@ ERROR 1: PROJ: internal_proj_identify: Cannot find proj.db
 
 
 UPDATE: first run worked, check2 has the parquet data w/mtbs, geom, ig date, and dem info
+
+Geohash for unique id at each pixel or incrementing integer
