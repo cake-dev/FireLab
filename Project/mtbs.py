@@ -37,8 +37,8 @@ STATE = "OR"
 
 def get_nc_var_name(ds):
     # Find the data variable in a nc xarray.Dataset
-    # var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
-    var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[1]
+    var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
+    # var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[1] # for DAYMET ONLY!!
     return var_name
 
 
@@ -46,14 +46,14 @@ def netcdf_to_raster(path, date):
     # This produces a Dataset. We need to grab the DataArray inside that
     # contains the data of interest.
     nc_ds = xr.open_dataset(path, chunks={"day": 1})#, decode_times=False)
-    nc_ds = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
-    nc_ds = nc_ds.rio.write_crs(
-        nc_ds.coords["lambert_conformal_conic"].spatial_ref
-    )  # FOR DAYMET ONLY!!
-    nc_ds = nc_ds.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
-    nc_ds2 = nc_ds.drop_vars(["lat", "lon"])  # FOR DAYMET ONLY!!
-    nc_ds = None
-    nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
+    nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
+    # nc_ds = nc_ds.rio.write_crs(
+    #     nc_ds.coords["lambert_conformal_conic"].spatial_ref
+    # )  # FOR DAYMET ONLY!!
+    # nc_ds = nc_ds.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
+    # nc_ds2 = nc_ds.drop_vars(["lat", "lon"])  # FOR DAYMET ONLY!!
+    # nc_ds = None # FOR DAYMET ONLY!!
+    # nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
     # comment lines below for normal operation
     #ds_crs = CRS.from_epsg(5071)
     #nc_ds.rio.write_crs(ds_crs)
@@ -281,12 +281,12 @@ PATHS = {
     "aw_td": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_TD.tif"),
     "dm_tmax": pjoin(FEATURE_DIR, "daymet/tmax_1986_2020.nc"),
     "dm_tmin": pjoin(FEATURE_DIR, "daymet/tmin_1986_2020.nc"),
-    # "biomass_afg": pjoin(
-    #     FEATURE_DIR, "biomass/1986_2020_biomass_afg_{}.nc".format(STATE.lower())
-    # ),
-    # "biomass_pfg": pjoin(
-    #     FEATURE_DIR, "biomass/1986_2020_biomass_pfg_{}.nc".format(STATE.lower())
-    # ),
+    "biomass_afg": pjoin(
+        FEATURE_DIR, "biomass/biomass_afg_1986_2020_{}.nc".format(STATE)
+    ),
+    "biomass_pfg": pjoin(
+        FEATURE_DIR, "biomass/biomass_pfg_1986_2020_{}.nc".format(STATE)
+    ),
     "landfire_fvt": pjoin(
         FEATURE_DIR, "landfire/LF2020_FVT_200_CONUS/Tif/LC20_FVT_200.tif"
     ),
@@ -301,7 +301,7 @@ YEARS = list(range(1986, 2021))
 GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
 DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS))
-# BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS))
+BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS))
 LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
 NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS))
 DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
@@ -381,14 +381,14 @@ if __name__ == "__main__":
     if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(checkpoint_2_path)
+            df = dgpd.read_parquet(mtbs_df_temp_path)
         df = add_columns_to_df(
-            df, DM_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
+            df, BIOMASS_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
         )
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
-            df.to_parquet(mtbs_df_temp_path)
+            df.to_parquet(mtbs_df_path)
 
     if 0:
         with ProgressBar():
