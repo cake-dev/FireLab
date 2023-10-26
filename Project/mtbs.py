@@ -46,7 +46,7 @@ def netcdf_to_raster(path, date):
     # This produces a Dataset. We need to grab the DataArray inside that
     # contains the data of interest.
     nc_ds = xr.open_dataset(path, chunks={"day": 1})#, decode_times=False)
-    nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
+    # nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
     # nc_ds = nc_ds.rio.write_crs(
     #     nc_ds.coords["lambert_conformal_conic"].spatial_ref
     # )  # FOR DAYMET ONLY!!
@@ -55,9 +55,10 @@ def netcdf_to_raster(path, date):
     # nc_ds = None # FOR DAYMET ONLY!!
     # nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
     # comment lines below for normal operation
-    #ds_crs = CRS.from_epsg(5071)
-    #nc_ds.rio.write_crs(ds_crs)
-    nc_ds2 = nc_ds2.rio.write_crs(nc_ds2.crs.spatial_ref)
+    #ds_crs = CRS.from_epsg(5071) dont need this line
+    #nc_ds.rio.write_crs(ds_crs) dont need this line
+    # nc_ds2 = nc_ds.rio.write_crs(nc_ds.crs.spatial_ref)
+    nc_ds2 = nc_ds.rio.write_crs(nc_ds.crs) # for NDVI
     # print nc_ds dimensions
     # print(f"{nc_ds.dims = }")
     # Find variable name
@@ -66,7 +67,8 @@ def netcdf_to_raster(path, date):
     # Extract
     var_da = nc_ds2[var_name]
     # print(f"{var_da = }")
-    var_da = var_da.sel(time=date, method="nearest")
+    # var_da = var_da.sel(time=date, method="nearest") # for DM and BM
+    var_da = var_da.sel(day=date, method="nearest") # for GM
     xrs = xr.DataArray(
         var_da.data, dims=("y", "x"), coords=(var_da.lat.data, var_da.lon.data)
     ).expand_dims("band")
@@ -119,7 +121,7 @@ def extract_dem_data(df, key):
 
 def extract_tif_data(df, key):
     state = df.state.values[0]
-    path = pjoin(PRISM_DIR,"Normal_1991_2020_monthly/tmax", "1991_2020_tmaxnormals.tif")
+    path = PATHS[key]
     rs = Raster(path)
     if type(df) == pd.DataFrame:
         df = gpd.GeoDataFrame(df)
@@ -143,6 +145,15 @@ def partition_extract_nc(df, key):
         parts.append(extract_nc_data(gdf, key))
     return pd.concat(parts)
 
+def partition_extract_tif(df, key):
+    # This func wraps extract_tif_data. It groups the partition in to sub
+    # dataframes with the same date and then applies extract_tif_data to
+    # each and reassembles the results into an output dataframe.
+    parts = []
+    for group in df.groupby("ig_date", sort=True):
+        _, gdf = group
+        parts.append(extract_tif_data(gdf, key))
+    return pd.concat(parts)
 
 def clip_and_save_dem_rasters(keys, paths, feature, state):
     feature = feature.compute()
@@ -239,7 +250,7 @@ def add_columns_to_df(
             with ProgressBar():
                 expanded_df.to_parquet(out_path)
         else:
-            # Save parts in serial and then assemble into single dataframe
+            # Save parts in serial and then assemble inBIOMASS_KEYSto single dataframe
             with tempfile.TemporaryDirectory(dir=tmp_loc) as part_dir:
                 dfs = []
                 for i, part in enumerate(expanded_df.partitions):
@@ -273,8 +284,8 @@ PATHS = {
     "dem_slope": pjoin(EDNA_DIR, "us_slope/us_slope/slope/hdr.adf"),
     "dem_aspect": pjoin(EDNA_DIR, "us_aspect/aspect/hdr.adf"),
     "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/us_flow_acc/flow_acc/hdr.adf"),
-    "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_1986-2020_weekly.nc"),
-    "gm_vpd": pjoin(FEATURE_DIR, "gridmet/vpd_1984-2020_weekly.nc"),
+    "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_1986_2020_weekly.nc"),
+    "gm_vpd": pjoin(FEATURE_DIR, "gridmet/vpd_1986_2020_weekly.nc"),
     "aw_mat": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MAT.tif"),
     "aw_mcmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MCMT.tif"),
     "aw_mwmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MWMT.tif"),
@@ -298,13 +309,13 @@ PATHS = {
     "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
 }
 YEARS = list(range(1986, 2021))
-GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
+GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) # added
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
-DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS))
-BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS))
+DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) # added
+BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS)) # added
 LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
 NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS))
-DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
+DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
 
 
 
@@ -383,7 +394,7 @@ if __name__ == "__main__":
         with ProgressBar():
             df = dgpd.read_parquet(mtbs_df_temp_path)
         df = add_columns_to_df(
-            df, BIOMASS_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
+            df, NDVI_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
         )
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
