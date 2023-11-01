@@ -398,17 +398,17 @@ if __name__ == "__main__":
     if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(mtbs_df_path)
+            df = dgpd.read_parquet(mtbs_df_temp_path)
         # df = add_columns_to_df(
         #     df, NDVI_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
         # ) for NC data
         df = add_columns_to_df(
-            df, AW_KEYS, partition_extract_tif, checkpoint_1_path, parallel=False
+            df, LANDFIRE_KEYS, partition_extract_tif, checkpoint_1_path, parallel=False
         ) 
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
-            df.to_parquet(mtbs_df_temp_path)
+            df.to_parquet(mtbs_df_path)
 
     if 0:
         with ProgressBar():
