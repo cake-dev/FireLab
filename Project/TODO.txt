@@ -13,5 +13,7 @@ UPDATE: first run worked, check2 has the parquet data w/mtbs, geom, ig date, and
 UPDATE: next run worked, mtbs_df_temp_path has the mtbs data all above + daymet data
 FIXME: adding biomass returns error of no data in raster (need to fix projection)
 UPDATE: was able to add biomass after removing unnessecary projection
+UPDATE: added gridmet data
+UPDATE: adding NDVI data
 
 Geohash for unique id at each pixel or incrementing integer

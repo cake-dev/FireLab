@@ -35,49 +35,53 @@ DATA_LOC = "/home/jake/FireLab/Project/data/"
 STATE = "OR"
 
 
-def get_nc_var_name(ds):
+def get_nc_var_name(ds, nc_feat_name):
     # Find the data variable in a nc xarray.Dataset
-    var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
-    # var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[1] # for DAYMET ONLY!!
+    if nc_feat_name.startswith("dm"):
+        var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[1] # for DAYMET ONLY!!
+    else:
+        var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
     return var_name
 
 
-def netcdf_to_raster(path, date):
+def netcdf_to_raster(path, date, nc_feature_name):
     # This produces a Dataset. We need to grab the DataArray inside that
     # contains the data of interest.
     nc_ds = xr.open_dataset(path, chunks={"day": 1})#, decode_times=False)
-    nc_ds2 = nc_ds.drop_vars(
+    if nc_feature_name == "ndvi":
+        nc_ds2 = nc_ds.drop_vars(
         ["latitude_bnds", "longitude_bnds", "time_bnds"]
-    ).rio.write_crs("EPSG:4326") # FOR NDVI ONLY!!
-    # nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
-    # nc_ds = nc_ds.rio.write_crs(
-    #     nc_ds.coords["lambert_conformal_conic"].spatial_ref
-    # )  # FOR DAYMET ONLY!!
-    # nc_ds = nc_ds.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
-    # nc_ds2 = nc_ds.drop_vars(["lat", "lon"])  # FOR DAYMET ONLY!!
-    # nc_ds = None # FOR DAYMET ONLY!!
-    # nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
-    # comment lines below for normal operation
-    #ds_crs = CRS.from_epsg(5071) dont need this line
-    #nc_ds.rio.write_crs(ds_crs) dont need this line
-    # nc_ds2 = nc_ds.rio.write_crs(nc_ds.crs.spatial_ref)
-    # nc_ds2 = nc_ds.rio.write_crs(nc_ds.crs) # for NDVI
-    # print nc_ds dimensions
-    # print(f"{nc_ds.dims = }")
+        ).rio.write_crs("EPSG:4326") # FOR NDVI ONLY!!
+    elif nc_feature_name.startswith("dm_"):
+        # nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
+        nc_ds = nc_ds.rio.write_crs(
+            nc_ds.coords["lambert_conformal_conic"].spatial_ref
+        )  # FOR DAYMET ONLY!!
+        nc_ds = nc_ds.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
+        nc_ds2 = nc_ds.drop_vars(["lat", "lon"])  # FOR DAYMET ONLY!!
+        nc_ds = None # FOR DAYMET ONLY!!
+        nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
+    else:
+        nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")
+    
     # Find variable name
-    var_name = get_nc_var_name(nc_ds2)
+    var_name = get_nc_var_name(nc_ds2, nc_feature_name)
     # print(f"var_name: {var_name}")
     # Extract
     var_da = nc_ds2[var_name]
     # print(f"{var_da = }")
-    var_da = var_da.sel(time=date, method="nearest") # for DM and BM and NDVI
-    # var_da = var_da.sel(day=date, method="nearest") # for GM
-    # xrs = xr.DataArray(
-    #     var_da.data, dims=("y", "x"), coords=(var_da.lat.data, var_da.lon.data)
-    # ).expand_dims("band") # For non-NDVI
-    xrs = xr.DataArray(
-        var_da.data, dims=("y", "x"), coords=(var_da.latitude.data, var_da.longitude.data)
-    ).expand_dims("band") # FOR NDVI ONLY!!
+    if nc_feature_name.startswith("gm_"):
+        var_da = var_da.sel(day=date, method="nearest") # for GM
+    else:
+        var_da = var_da.sel(time=date, method="nearest") # for DM and BM and NDVI
+    if nc_feature_name.startswith("ndvi"):
+        xrs = xr.DataArray(
+            var_da.data, dims=("y", "x"), coords=(var_da.latitude.data, var_da.longitude.data)
+        ).expand_dims("band") # FOR NDVI ONLY!!
+    else:
+        xrs = xr.DataArray(
+            var_da.data, dims=("y", "x"), coords=(var_da.lat.data, var_da.lon.data)
+        ).expand_dims("band") # For non-NDVI
     xrs["band"] = [1]
     # Set CRS in raster compliant format
     xrs = xrs.rio.write_crs(nc_ds2.crs.spatial_ref)
@@ -89,7 +93,7 @@ def extract_nc_data(df, nc_name):
     # print(f"{gm_name}: {df.columns = }, {len(df) = }")
     date = df.ig_date.values[0]
     print(f"{nc_name}: starting {date}")
-    rs = netcdf_to_raster(PATHS[nc_name], date)
+    rs = netcdf_to_raster(PATHS[nc_name], date, nc_name)
     bounds = gpd.GeoSeries(df.geometry).to_crs(rs.crs).total_bounds
     rs = clipping.clip_box(rs, bounds)
     if type(df) == pd.DataFrame:
@@ -323,6 +327,9 @@ LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
 NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS)) # added
 DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
 
+NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
+TIF_KEYSET = set(AW_KEYS + LANDFIRE_KEYS + DEM_KEYS)
+
 
 
 if __name__ == "__main__":
@@ -404,7 +411,7 @@ if __name__ == "__main__":
         # ) for NC data
         df = add_columns_to_df(
             df, AW_KEYS, partition_extract_tif, checkpoint_1_path, parallel=False
-        ) 
+        ) # for TIF data
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
