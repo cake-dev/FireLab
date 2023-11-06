@@ -17,7 +17,7 @@ from dask.diagnostics import ProgressBar
 from rasterio.crs import CRS
 
 from raster_tools import Raster, Vector, open_vectors, clipping, zonal
-from raster_tools.dtypes import F32, U8
+from raster_tools.dtypes import F32, U8, U16
 
 # Filter out warnings from dask_geopandas and dask
 warnings.filterwarnings(
@@ -33,6 +33,51 @@ TMP_LOC = "/home/jake/FireLab/Project/data/temp/"
 DATA_LOC = "/home/jake/FireLab/Project/data/"
 
 STATE = "OR"
+
+### PRIMARY FUNCTIONS ###
+
+def add_unique_identifier(df):
+    # Create a unique identifier for each partition by combining a partition-specific prefix with the index
+    # The `map_partitions` function provides two additional keyword arguments to each task:
+    # - `partition_info` is a dictionary containing the partition number ('number') and the number of partitions ('division')
+    # - `**kwargs` catches these arguments without explicitly naming them
+    def _add_unique_identifier_partition(df, partition_info=None, **kwargs):
+        partition_number = partition_info['number']
+        # Use the partition number as a prefix to ensure uniqueness across partitions
+        df['unique_id'] = f"part_{partition_number}_" + df.index.astype(str)
+        return df
+
+    return df.map_partitions(_add_unique_identifier_partition, meta=df._meta)
+
+def hillshade(slope, aspect, azimuth=180, zenith=45):
+    # Convert angles from degrees to radians
+    azimuth_rad = np.radians(azimuth)
+    zenith_rad = np.radians(zenith)
+    slope_rad = np.radians(slope)
+    aspect_rad = np.radians(aspect)
+
+    # Calculate hillshade
+    shaded = np.sin(zenith_rad) * np.sin(slope_rad) + \
+             np.cos(zenith_rad) * np.cos(slope_rad) * \
+             np.cos(azimuth_rad - aspect_rad)
+    # scale to 0-255
+    shaded = 255 * (shaded + 1) / 2
+    # round hillshade to nearest integer
+    shaded = np.rint(shaded)
+    # convert to uint8
+    # Ensure non-finite values are not converted to int
+    # shaded = np.where(np.isfinite(shaded), shaded.astype(np.uint8), np.nan)
+    return shaded
+
+def hillshade_partition(df, zenith, azimuth):
+    # Apply the hillshade function to the slope and aspect columns
+    df['hillshade'] = hillshade(df['dem_slope'], df['dem_aspect'], azimuth, zenith)
+    return df
+
+def timestamp_to_year_part(df):
+    # Assuming 'ig_date' is the column with timestamp data
+    df['year'] = df['ig_date'].dt.year
+    return df
 
 
 def get_nc_var_name(ds):
@@ -316,10 +361,10 @@ PATHS = {
 }
 YEARS = list(range(1986, 2021))
 GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) # added
-AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
+AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS)) # added
 DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) # added
 BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS)) # added
-LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
+LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS)) # added
 NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS)) # added
 DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
 
@@ -395,7 +440,7 @@ if __name__ == "__main__":
         with ProgressBar():
             df.to_parquet(checkpoint_2_path)
 
-    if 1:
+    if 0:
         # code below used to add new features to the dataset
         with ProgressBar():
             df = dgpd.read_parquet(mtbs_df_temp_path)
@@ -410,23 +455,24 @@ if __name__ == "__main__":
         with ProgressBar():
             df.to_parquet(mtbs_df_path)
 
-    if 0:
+    if 1:
         with ProgressBar():
-            df = dgpd.read_parquet(mtbs_df_path)
-        df = df.assign(hillshade=U8.type(0))
-        df = df.map_partitions(hillshade_partition, 45, 180, meta=df._meta)
-        df = df.assign(year=U16.type(0))
-        df = df.map_partitions(timestamp_to_year_part, meta=df._meta)
+            df = dgpd.read_parquet(mtbs_df_temp_path)
+        # df = df.assign(hillshade=U8.type(0))
+        # df = df.map_partitions(hillshade_partition, 45, 180, meta=df._meta)
+        # df = df.assign(year=U16.type(0))
+        # df = df.map_partitions(timestamp_to_year_part, meta=df._meta)
 
         print(df.head())
 
         print("Repartitioning and saving ")
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
+        df = df.assign(unique_id=str)
+        df = df.map_partitions(add_unique_identifier, meta=df._meta)
         with ProgressBar():
             # df.to_parquet(mtbs_df_temp_path)
-            df.to_parquet(mtbs_df_temp_path)
+            df.to_parquet(mtbs_df_path)
 
 
-
-# TODO ADD UNIQUE IDENTIFIER TO EACH PIXEL
-# TODO add fire ID to each pixel (should be in MTBS data somewhere)
+# TODO ADD UNIQUE IDENTIFIER TO EACH entry
+# TODO add fire ID to each entry (should be in MTBS data somewhere)
