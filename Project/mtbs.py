@@ -467,8 +467,8 @@ if __name__ == "__main__":
 
         print("Repartitioning and saving ")
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
-        df = df.assign(unique_id=str)
-        df = df.map_partitions(add_unique_identifier, meta=df._meta)
+        # df = df.assign(unique_id=str) does not work, added outside of dask
+        # df = df.map_partitions(add_unique_identifier, meta=df._meta)
         with ProgressBar():
             # df.to_parquet(mtbs_df_temp_path)
             df.to_parquet(mtbs_df_path)
