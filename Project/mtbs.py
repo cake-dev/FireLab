@@ -449,7 +449,7 @@ if __name__ == "__main__":
         # ) for NC data
         df = add_columns_to_df(
             df, LANDFIRE_KEYS, partition_extract_tif, checkpoint_1_path, parallel=False
-        ) 
+        ) # for TIF data
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
