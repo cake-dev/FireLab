@@ -36,18 +36,18 @@ STATE = "OR"
 
 ### PRIMARY FUNCTIONS ###
 
-def add_unique_identifier(df):
-    # Create a unique identifier for each partition by combining a partition-specific prefix with the index
-    # The `map_partitions` function provides two additional keyword arguments to each task:
-    # - `partition_info` is a dictionary containing the partition number ('number') and the number of partitions ('division')
-    # - `**kwargs` catches these arguments without explicitly naming them
-    def _add_unique_identifier_partition(df, partition_info=None, **kwargs):
-        partition_number = partition_info['number']
-        # Use the partition number as a prefix to ensure uniqueness across partitions
-        df['unique_id'] = f"part_{partition_number}_" + df.index.astype(str)
-        return df
+# def add_unique_identifier(df):
+#     # Create a unique identifier for each partition by combining a partition-specific prefix with the index
+#     # The `map_partitions` function provides two additional keyword arguments to each task:
+#     # - `partition_info` is a dictionary containing the partition number ('number') and the number of partitions ('division')
+#     # - `**kwargs` catches these arguments without explicitly naming them
+#     def _add_unique_identifier_partition(df, partition_info=None, **kwargs):
+#         partition_number = partition_info['number']
+#         # Use the partition number as a prefix to ensure uniqueness across partitions
+#         df['unique_id'] = f"part_{partition_number}_" + df.index.astype(str)
+#         return df
 
-    return df.map_partitions(_add_unique_identifier_partition, meta=df._meta)
+#     return df.map_partitions(_add_unique_identifier_partition, meta=df._meta)
 
 def hillshade(slope, aspect, azimuth=180, zenith=45):
     # Convert angles from degrees to radians
