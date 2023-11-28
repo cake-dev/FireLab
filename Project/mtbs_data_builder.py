@@ -17,7 +17,7 @@ from dask.diagnostics import ProgressBar
 from rasterio.crs import CRS
 
 from raster_tools import Raster, Vector, open_vectors, clipping, zonal
-from raster_tools.dtypes import F32, U8
+from raster_tools.dtypes import F32, U8, U16
 
 # Filter out warnings from dask_geopandas and dask
 warnings.filterwarnings(
@@ -34,6 +34,92 @@ DATA_LOC = "/home/jake/FireLab/Project/data/"
 
 STATE = "OR"
 
+# Location of clipped DEM files
+DEM_DATA_DIR = pjoin(TMP_LOC, "dem_data")
+
+# location of feature data files
+FEATURE_DIR = pjoin(DATA_LOC, "FeatureData")
+EDNA_DIR = pjoin(DATA_LOC, "terrain")
+MTBS_DIR = pjoin(DATA_LOC, "MTBS_Data")
+
+PATHS = {
+    "states": pjoin(EDNA_DIR, "state_borders/cb_2018_us_state_5m.shp"),
+    "dem": pjoin(EDNA_DIR, "us_orig_dem/us_orig_dem/orig_dem/hdr.adf"),
+    "dem_slope": pjoin(EDNA_DIR, "us_slope/us_slope/slope/hdr.adf"),
+    "dem_aspect": pjoin(EDNA_DIR, "us_aspect/aspect/hdr.adf"),
+    "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/us_flow_acc/flow_acc/hdr.adf"),
+    "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_1986_2020_weekly.nc"),
+    "gm_vpd": pjoin(FEATURE_DIR, "gridmet/vpd_1986_2020_weekly.nc"),
+    "aw_mat": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MAT.tif"),
+    "aw_mcmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MCMT.tif"),
+    "aw_mwmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MWMT.tif"),
+    "aw_td": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_TD.tif"),
+    "dm_tmax": pjoin(FEATURE_DIR, "daymet/tmax_1986_2020.nc"),
+    "dm_tmin": pjoin(FEATURE_DIR, "daymet/tmin_1986_2020.nc"),
+    "biomass_afg": pjoin(
+        FEATURE_DIR, "biomass/biomass_afg_1986_2020_{}.nc".format(STATE)
+    ),
+    "biomass_pfg": pjoin(
+        FEATURE_DIR, "biomass/biomass_pfg_1986_2020_{}.nc".format(STATE)
+    ),
+    "landfire_fvt": pjoin(
+        FEATURE_DIR, "landfire/LF2020_FVT_200_CONUS/Tif/LC20_FVT_200.tif"
+    ),
+    "landfire_fbfm40": pjoin(
+        FEATURE_DIR, "landfire/LF2020_FBFM40_200_CONUS/Tif/LC20_F40_200.tif"
+    ),
+    "ndvi": pjoin(FEATURE_DIR, "ndvi/access/weekly/ndvi_1986_2020_weekavg.nc"),
+    "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
+    "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
+}
+YEARS = list(range(1986, 2021))
+GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) # added
+AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
+DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) # added
+BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS)) # added
+LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
+NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS)) # added
+DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
+
+NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
+TIF_KEYSET = set(AW_KEYS + LANDFIRE_KEYS + DEM_KEYS)
+
+MTBS_DF_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
+MTBS_DF_TEMP_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
+MTBS_DF_TEMP_PATH_2 = pjoin(TMP_LOC, f"{STATE}_mtbs_temp_2.parquet")
+CHECKPOINT_1_PATH = pjoin(TMP_LOC, "check1")
+CHECKPOINT_2_PATH = pjoin(TMP_LOC, "check2")
+
+
+def hillshade(slope, aspect, azimuth=180, zenith=45):
+    # Convert angles from degrees to radians
+    azimuth_rad = np.radians(azimuth)
+    zenith_rad = np.radians(zenith)
+    slope_rad = np.radians(slope)
+    aspect_rad = np.radians(aspect)
+
+    # Calculate hillshade
+    shaded = np.sin(zenith_rad) * np.sin(slope_rad) + \
+             np.cos(zenith_rad) * np.cos(slope_rad) * \
+             np.cos(azimuth_rad - aspect_rad)
+    # scale to 0-255
+    shaded = 255 * (shaded + 1) / 2
+    # round hillshade to nearest integer
+    shaded = np.rint(shaded)
+    # convert to uint8
+    # Ensure non-finite values are not converted to int
+    # shaded = np.where(np.isfinite(shaded), shaded.astype(np.uint8), np.nan)
+    return shaded
+
+def hillshade_partition(df, zenith, azimuth):
+    # Apply the hillshade function to the slope and aspect columns
+    df['hillshade'] = hillshade(df['dem_slope'], df['dem_aspect'], azimuth, zenith)
+    return df
+
+def timestamp_to_year_part(df):
+    # Assuming 'ig_date' is the column with timestamp data
+    df['year'] = df['ig_date'].dt.year
+    return df
 
 def get_nc_var_name(ds, nc_feat_name):
     # Find the data variable in a nc xarray.Dataset
@@ -280,117 +366,60 @@ def add_columns_to_df(
     return dgpd.read_parquet(out_path)
 
 
-# Location of clipped DEM files
-DEM_DATA_DIR = pjoin(TMP_LOC, "dem_data")
-
-# location of feature data files
-FEATURE_DIR = pjoin(DATA_LOC, "FeatureData")
-EDNA_DIR = pjoin(DATA_LOC, "terrain")
-MTBS_DIR = pjoin(DATA_LOC, "MTBS_Data")
-
-PATHS = {
-    "states": pjoin(EDNA_DIR, "state_borders/cb_2018_us_state_5m.shp"),
-    "dem": pjoin(EDNA_DIR, "us_orig_dem/us_orig_dem/orig_dem/hdr.adf"),
-    "dem_slope": pjoin(EDNA_DIR, "us_slope/us_slope/slope/hdr.adf"),
-    "dem_aspect": pjoin(EDNA_DIR, "us_aspect/aspect/hdr.adf"),
-    "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/us_flow_acc/flow_acc/hdr.adf"),
-    "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_1986_2020_weekly.nc"),
-    "gm_vpd": pjoin(FEATURE_DIR, "gridmet/vpd_1986_2020_weekly.nc"),
-    "aw_mat": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MAT.tif"),
-    "aw_mcmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MCMT.tif"),
-    "aw_mwmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MWMT.tif"),
-    "aw_td": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_TD.tif"),
-    "dm_tmax": pjoin(FEATURE_DIR, "daymet/tmax_1986_2020.nc"),
-    "dm_tmin": pjoin(FEATURE_DIR, "daymet/tmin_1986_2020.nc"),
-    "biomass_afg": pjoin(
-        FEATURE_DIR, "biomass/biomass_afg_1986_2020_{}.nc".format(STATE)
-    ),
-    "biomass_pfg": pjoin(
-        FEATURE_DIR, "biomass/biomass_pfg_1986_2020_{}.nc".format(STATE)
-    ),
-    "landfire_fvt": pjoin(
-        FEATURE_DIR, "landfire/LF2020_FVT_200_CONUS/Tif/LC20_FVT_200.tif"
-    ),
-    "landfire_fbfm40": pjoin(
-        FEATURE_DIR, "landfire/LF2020_FBFM40_200_CONUS/Tif/LC20_F40_200.tif"
-    ),
-    "ndvi": pjoin(FEATURE_DIR, "ndvi/access/weekly/ndvi_1986_2020_weekavg.nc"),
-    "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
-    "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
-}
-YEARS = list(range(1986, 2021))
-GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) # added
-AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
-DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) # added
-BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS)) # added
-LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
-NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS)) # added
-DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
-
-NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
-TIF_KEYSET = set(AW_KEYS + LANDFIRE_KEYS + DEM_KEYS)
-
-
+### MAIN ###
 
 if __name__ == "__main__":
 
-    # # State borders
-    # print("Loading state borders")
-    # stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
-    # states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
-    # state_shape = states[STATE]
-    # states = None
-    # stdf = None
+    # State borders
+    print("Loading state borders")
+    stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
+    states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
+    state_shape = states[STATE]
+    states = None
+    stdf = None
 
-    # # MTBS Perimeters
-    # print("Loading MTBS perimeters")
-    # perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
-    # state_fire_perims = perimdf.clip(state_shape.compute())
-    # state_fire_perims = (
-    #     state_fire_perims.assign(
-    #         Ig_Date=lambda frame: dd.to_datetime(
-    #             frame.Ig_Date, format="%Y-%m-%d"
-    #         )
-    #     )
-    #     .sort_values("Ig_Date")
-    #     .compute()
-    # )
-    # year_to_perims = {
-    #     y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
-    #     for y in YEARS
-    # }
-    # state_fire_perims = None
+    # MTBS Perimeters
+    print("Loading MTBS perimeters")
+    perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
+    state_fire_perims = perimdf.clip(state_shape.compute())
+    state_fire_perims = (
+        state_fire_perims.assign(
+            Ig_Date=lambda frame: dd.to_datetime(
+                frame.Ig_Date, format="%Y-%m-%d"
+            )
+        )
+        .sort_values("Ig_Date")
+        .compute()
+    )
+    year_to_perims = {
+        y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
+        for y in YEARS
+    }
+    state_fire_perims = None
 
-    # year_to_mtbs_file = {
-    #     y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
-    #     for y in YEARS
-    # }
+    year_to_mtbs_file = {
+        y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
+        for y in YEARS
+    }
 
     # print(year_to_mtbs_file)
 
-    mtbs_df_path = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
-    mtbs_df_temp_path = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
-    checkpoint_1_path = pjoin(TMP_LOC, "check1")
-    checkpoint_2_path = pjoin(TMP_LOC, "check2")
 
-    if 0:
+    if 1:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
             year_to_mtbs_file,
             year_to_perims,
             STATE,
-            out_path=mtbs_df_path,
+            out_path=MTBS_DF_TEMP_PATH_2,
         )
-        # df = add_columns_to_df(
-        #     df, GM_KEYS, partition_extract_gridmet, checkpoint_1_path
-        # )
         clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
         df = add_columns_to_df(
             df,
             DEM_KEYS,
             extract_dem_data,
-            checkpoint_1_path,
+            CHECKPOINT_1_PATH,
             # Save results in serial to avoid segfaulting. Something about the
             # dem computations makes segfaults extremely likely when saving
             # The computations require a lot of memory which may be what
@@ -400,40 +429,32 @@ if __name__ == "__main__":
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
-            df.to_parquet(checkpoint_2_path)
+            df.to_parquet(CHECKPOINT_2_PATH)
+        df = None
 
     if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(mtbs_df_path)
-        # df = add_columns_to_df(
-        #     df, NDVI_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
-        # ) for NC data
-        df = add_columns_to_df(
-            df, AW_KEYS, partition_extract_tif, checkpoint_1_path, parallel=False
-        ) # for TIF data
-        df = df.repartition(partition_size="100MB").reset_index(drop=True)
-        print("Repartitioning")
-        with ProgressBar():
-            df.to_parquet(mtbs_df_temp_path)
+            df = dgpd.read_parquet(CHECKPOINT_2_PATH)
 
-    if 0:
-        with ProgressBar():
-            df = dgpd.read_parquet(mtbs_df_path)
+        # loop to add all nc features
+        for nc_name in NC_KEYSET:
+            print(f"Adding {nc_name}")
+            df = add_columns_to_df(
+                df, [nc_name], partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
+            )
+        # loop to add all tif features
+        for tif_name in TIF_KEYSET:
+            print(f"Adding {tif_name}")
+            df = add_columns_to_df(
+                df, [tif_name], partition_extract_tif, CHECKPOINT_1_PATH, parallel=False
+            )
+        # add hillshade and year columns
         df = df.assign(hillshade=U8.type(0))
         df = df.map_partitions(hillshade_partition, 45, 180, meta=df._meta)
         df = df.assign(year=U16.type(0))
         df = df.map_partitions(timestamp_to_year_part, meta=df._meta)
-
-        print(df.head())
-
-        print("Repartitioning and saving ")
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
+        print("Repartitioning")
         with ProgressBar():
-            # df.to_parquet(mtbs_df_temp_path)
-            df.to_parquet(mtbs_df_temp_path)
-
-
-
-# TODO ADD UNIQUE IDENTIFIER TO EACH PIXEL
-# TODO add fire ID to each pixel (should be in MTBS data somewhere)
+            df.to_parquet(MTBS_DF_TEMP_PATH_2)
