@@ -72,7 +72,7 @@ PATHS = {
     "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
     "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
 }
-YEARS = list(range(1986, 2021))
+YEARS = list(range(2018, 2021))
 GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) # added
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
 DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) # added
@@ -81,10 +81,12 @@ LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
 NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS)) # added
 DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
 
-NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
+# NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
+NC_KEYSET = [DM_KEYS]
 TIF_KEYSET = set(AW_KEYS + LANDFIRE_KEYS + DEM_KEYS)
 
 MTBS_DF_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
+MTBS_DF_PARQUET_PATH_NEW = pjoin(TMP_LOC, f"{STATE}_mtbs_new.parquet")
 MTBS_DF_TEMP_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
 MTBS_DF_TEMP_PATH_2 = pjoin(TMP_LOC, f"{STATE}_mtbs_temp_2.parquet")
 CHECKPOINT_1_PATH = pjoin(TMP_LOC, "check1")
@@ -124,7 +126,7 @@ def timestamp_to_year_part(df):
 def get_nc_var_name(ds, nc_feat_name):
     # Find the data variable in a nc xarray.Dataset
     if nc_feat_name.startswith("dm"):
-        var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[1] # for DAYMET ONLY!!
+        var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[0] # for DAYMET ONLY!!
     else:
         var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
     return var_name
@@ -137,19 +139,19 @@ def netcdf_to_raster(path, date, nc_feature_name):
     if nc_feature_name == "ndvi":
         nc_ds2 = nc_ds.drop_vars(
         ["latitude_bnds", "longitude_bnds", "time_bnds"]
-        ).rio.write_crs("EPSG:4326") # FOR NDVI ONLY!!
+        ).rio.write_crs("EPSG:5071") # FOR NDVI ONLY!!
     elif nc_feature_name.startswith("dm_"):
-        # nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
-        nc_ds = nc_ds.rio.write_crs(
-            nc_ds.coords["lambert_conformal_conic"].spatial_ref
-        )  # FOR DAYMET ONLY!!
-        nc_ds = nc_ds.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
-        nc_ds2 = nc_ds.drop_vars(["lat", "lon"])  # FOR DAYMET ONLY!!
+        nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
+        # nc_ds = nc_ds.rio.write_crs(
+        #     nc_ds.coords["lambert_conformal_conic"].spatial_ref
+        # )  # FOR DAYMET ONLY!!
+        nc_ds2 = nc_ds2.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
+        nc_ds2 = nc_ds2.drop_vars(["lat", "lon", "time_bnds"])  # FOR DAYMET ONLY!!
         nc_ds = None # FOR DAYMET ONLY!!
         nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
     else:
         nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")
-    
+
     # Find variable name
     var_name = get_nc_var_name(nc_ds2, nc_feature_name)
     # print(f"var_name: {var_name}")
@@ -370,42 +372,44 @@ def add_columns_to_df(
 
 if __name__ == "__main__":
 
-    # State borders
-    print("Loading state borders")
-    stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
-    states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
-    state_shape = states[STATE]
-    states = None
-    stdf = None
+    if 0:
+        # State borders
+        print("Loading state borders")
+        stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
+        states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
+        state_shape = states[STATE]
+        states = None
+        stdf = None
 
-    # MTBS Perimeters
-    print("Loading MTBS perimeters")
-    perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
-    state_fire_perims = perimdf.clip(state_shape.compute())
-    state_fire_perims = (
-        state_fire_perims.assign(
-            Ig_Date=lambda frame: dd.to_datetime(
-                frame.Ig_Date, format="%Y-%m-%d"
+        # MTBS Perimeters
+        print("Loading MTBS perimeters")
+        perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
+        state_fire_perims = perimdf.clip(state_shape.compute())
+        state_fire_perims = (
+            state_fire_perims.assign(
+                Ig_Date=lambda frame: dd.to_datetime(
+                    frame.Ig_Date, format="%Y-%m-%d"
+                )
             )
+            .sort_values("Ig_Date")
+            .compute()
         )
-        .sort_values("Ig_Date")
-        .compute()
-    )
-    year_to_perims = {
-        y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
-        for y in YEARS
-    }
-    state_fire_perims = None
+        state_fire_perims = state_fire_perims[state_fire_perims.Ig_Date.dt.year.between(2018, 2020)]
+        year_to_perims = {
+            y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
+            for y in YEARS
+        }
+        state_fire_perims = None
 
-    year_to_mtbs_file = {
-        y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
-        for y in YEARS
-    }
+        year_to_mtbs_file = {
+            y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
+            for y in YEARS
+        }
 
-    # print(year_to_mtbs_file)
+        # print(year_to_mtbs_file)
 
 
-    if 1:
+    if 0:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
@@ -435,20 +439,20 @@ if __name__ == "__main__":
     if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(CHECKPOINT_2_PATH)
+            df = dgpd.read_parquet(MTBS_DF_PARQUET_PATH_NEW)
 
         # loop to add all nc features
         for nc_name in NC_KEYSET:
             print(f"Adding {nc_name}")
             df = add_columns_to_df(
-                df, [nc_name], partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
+                df, nc_name, partition_extract_nc, CHECKPOINT_1_PATH, parallel=True
             )
         # loop to add all tif features
-        for tif_name in TIF_KEYSET:
-            print(f"Adding {tif_name}")
-            df = add_columns_to_df(
-                df, [tif_name], partition_extract_tif, CHECKPOINT_1_PATH, parallel=False
-            )
+        # for tif_name in TIF_KEYSET:
+        #     print(f"Adding {tif_name}")
+        #     df = add_columns_to_df(
+        #         df, [tif_name], partition_extract_tif, CHECKPOINT_1_PATH, parallel=False
+        #     )
         # add hillshade and year columns
         df = df.assign(hillshade=U8.type(0))
         df = df.map_partitions(hillshade_partition, 45, 180, meta=df._meta)

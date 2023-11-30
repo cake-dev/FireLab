@@ -344,7 +344,7 @@ PATHS = {
     "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
     "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
 }
-YEARS = list(range(1986, 2021))
+YEARS = list(range(2018, 2021))
 GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) # added
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS)) # added
 DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) # added
