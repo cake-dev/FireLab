@@ -372,7 +372,7 @@ def add_columns_to_df(
 
 if __name__ == "__main__":
 
-    if 0:
+    if 1:
         # State borders
         print("Loading state borders")
         stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
@@ -409,7 +409,7 @@ if __name__ == "__main__":
         # print(year_to_mtbs_file)
 
 
-    if 0:
+    if 1:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
@@ -436,7 +436,7 @@ if __name__ == "__main__":
             df.to_parquet(CHECKPOINT_2_PATH)
         df = None
 
-    if 1:
+    if 0:
         # code below used to add new features to the dataset
         with ProgressBar():
             df = dgpd.read_parquet(MTBS_DF_PARQUET_PATH_NEW)
