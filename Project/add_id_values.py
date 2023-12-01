@@ -94,7 +94,7 @@ mtbs_perim.columns
 # extract only the columns we need (Event_ID where startswith OR, Ig_Date, and geometry)
 mtbs_perim = mtbs_perim[["Event_ID", "Ig_Date", "geometry"]]
 mtbs_perim = mtbs_perim[mtbs_perim.Event_ID.str.startswith("OR")]
-# drop rows where Ig_Date before 1986 or after 2020
+# drop rows where Ig_Date before 2018 or after 2020
 mtbs_perim = mtbs_perim[mtbs_perim.Ig_Date.dt.year.between(2018, 2020)]
 mtbs_perim.reset_index(drop=True, inplace=True)
 mtbs_perim = mtbs_perim.to_crs(mtbs_df_2018_2020.crs)
