@@ -372,7 +372,7 @@ def add_columns_to_df(
 
 if __name__ == "__main__":
 
-    if 1:
+    if 0:
         # State borders
         print("Loading state borders")
         stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
@@ -384,6 +384,9 @@ if __name__ == "__main__":
         # MTBS Perimeters
         print("Loading MTBS perimeters")
         perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
+        # print("Loading VIIRS perimeters")
+        # perimdf = dgpd.read_parquet(DATA_LOC + "viirs_perims.parquet").compute().to_crs("EPSG:5071")
+        # perimdf = perimdf.rename(columns={"t": "Ig_Date"})
         state_fire_perims = perimdf.clip(state_shape.compute())
         state_fire_perims = (
             state_fire_perims.assign(
@@ -409,7 +412,7 @@ if __name__ == "__main__":
         # print(year_to_mtbs_file)
 
 
-    if 1:
+    if 0:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
@@ -436,7 +439,7 @@ if __name__ == "__main__":
             df.to_parquet(CHECKPOINT_2_PATH)
         df = None
 
-    if 0:
+    if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
             df = dgpd.read_parquet(MTBS_DF_PARQUET_PATH_NEW)
@@ -458,7 +461,7 @@ if __name__ == "__main__":
         df = df.map_partitions(hillshade_partition, 45, 180, meta=df._meta)
         df = df.assign(year=U16.type(0))
         df = df.map_partitions(timestamp_to_year_part, meta=df._meta)
-        df = df.repartition(partition_size="100MB").reset_index(drop=True)
-        print("Repartitioning")
+        # df = df.repartition(partition_size="100MB").reset_index(drop=True)
+        # print("Repartitioning")
         with ProgressBar():
             df.to_parquet(MTBS_DF_TEMP_PATH_2)
