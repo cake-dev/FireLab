@@ -448,7 +448,7 @@ if __name__ == "__main__":
         for nc_name in NC_KEYSET:
             print(f"Adding {nc_name}")
             df = add_columns_to_df(
-                df, nc_name, partition_extract_nc, CHECKPOINT_1_PATH, parallel=True
+                df, nc_name, partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
             )
         # loop to add all tif features
         # for tif_name in TIF_KEYSET:
@@ -457,11 +457,14 @@ if __name__ == "__main__":
         #         df, [tif_name], partition_extract_tif, CHECKPOINT_1_PATH, parallel=False
         #     )
         # add hillshade and year columns
+        df_meta = df._meta.copy()
         df = df.assign(hillshade=U8.type(0))
-        df = df.map_partitions(hillshade_partition, 45, 180, meta=df._meta)
+        df = df.map_partitions(hillshade_partition, 45, 180, meta=df_meta)
         df = df.assign(year=U16.type(0))
-        df = df.map_partitions(timestamp_to_year_part, meta=df._meta)
+        df = df.map_partitions(timestamp_to_year_part, meta=df_meta)
+        print("Columns: ", df.columns)
         # df = df.repartition(partition_size="100MB").reset_index(drop=True)
-        # print("Repartitioning")
+        print("Repartitioning")
+        df = df.compute()
         with ProgressBar():
             df.to_parquet(MTBS_DF_TEMP_PATH_2)
