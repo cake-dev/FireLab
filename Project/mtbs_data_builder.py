@@ -412,7 +412,7 @@ if __name__ == "__main__":
         # print(year_to_mtbs_file)
 
 
-    if 0:
+    if 1:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
