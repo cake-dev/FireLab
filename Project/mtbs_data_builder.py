@@ -73,17 +73,17 @@ PATHS = {
     "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
 }
 YEARS = list(range(2018, 2021))
-GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) # added
+GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
-DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) # added
-BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS)) # added
+DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS))
+BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS))
 LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
-NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS)) # added
-DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
+NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS))
+DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
 
 # NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
-NC_KEYSET = [DM_KEYS]
-TIF_KEYSET = set(AW_KEYS + LANDFIRE_KEYS + DEM_KEYS)
+NC_KEYSET = [DM_KEYS, GM_KEYS, BIOMASS_KEYS, NDVI_KEYS]
+TIF_KEYSET = [AW_KEYS, LANDFIRE_KEYS]
 
 MTBS_DF_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
 MTBS_DF_PARQUET_PATH_NEW = pjoin(TMP_LOC, f"{STATE}_mtbs_new.parquet")
@@ -412,14 +412,14 @@ if __name__ == "__main__":
         # print(year_to_mtbs_file)
 
 
-    if 1:
+    if 0:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
             year_to_mtbs_file,
             year_to_perims,
             STATE,
-            out_path=MTBS_DF_TEMP_PATH_2,
+            out_path=CHECKPOINT_1_PATH,
         )
         clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
         df = add_columns_to_df(
@@ -442,7 +442,7 @@ if __name__ == "__main__":
     if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(MTBS_DF_PARQUET_PATH_NEW)
+            df = dgpd.read_parquet(CHECKPOINT_2_PATH)
 
         # loop to add all nc features
         for nc_name in NC_KEYSET:
@@ -463,8 +463,8 @@ if __name__ == "__main__":
         df = df.assign(year=U16.type(0))
         df = df.map_partitions(timestamp_to_year_part, meta=df_meta)
         print("Columns: ", df.columns)
-        # df = df.repartition(partition_size="100MB").reset_index(drop=True)
+        df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         df = df.compute()
         with ProgressBar():
-            df.to_parquet(MTBS_DF_TEMP_PATH_2)
+            df.to_parquet(MTBS_DF_TEMP_PATH)

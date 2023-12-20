@@ -73,17 +73,17 @@ PATHS = {
     "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
 }
 YEARS = list(range(2018, 2021))
-GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) # added
+GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
-DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) # added
-BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS)) # added
+DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS))
+BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS))
 LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
-NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS)) # added
-DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
+NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS))
+DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
 
 # NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
-NC_KEYSET = [DM_KEYS]
-TIF_KEYSET = set(AW_KEYS + LANDFIRE_KEYS + DEM_KEYS)
+NC_KEYSET = [DM_KEYS, GM_KEYS, BIOMASS_KEYS, NDVI_KEYS]
+TIF_KEYSET = [AW_KEYS, LANDFIRE_KEYS]
 
 MTBS_DF_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
 MTBS_DF_PARQUET_PATH_NEW = pjoin(TMP_LOC, f"{STATE}_mtbs_new.parquet")
@@ -266,35 +266,30 @@ def clip_and_save_dem_rasters(keys, paths, feature, state):
         crs.save(out_path)
 
 
-def build_mtbs_year_df(path, perims_df, state_label):
-    rs = Raster(path)
+def build_mtbs_year_df(perims_df, state_label):
     dfs = []
     for grp in perims_df.groupby("Ig_Date"):
         date, perim = grp
-        df = (
-            clipping.clip(perim, rs)
-            .to_vector()
-            .rename(columns={"value": "mtbs"})
-            .drop(columns=["band", "row", "col"])
-            .assign(state=state_label, ig_date=date)
-            .astype({"mtbs": U8})
-        )
-        dfs.append(df)
+        perim = perim.copy()
+        perim["ig_date"] = date
+        perim["state"] = state_label
+        perim["fireid"] = perim["fireid"].astype(str)
+        dfs.append(perim)
     return dd.concat(dfs)
 
 
 def _build_mtbs_df(
-    years, year_to_mtbs_file, year_to_perims, state, working_dir
+    years, year_to_perims, state, working_dir
 ):
     dfs = []
     it = tqdm.tqdm(years, ncols=80, desc="MTBS")
     for y in it:
-        mtbs_path = year_to_mtbs_file[y]
-        if not os.path.exists(mtbs_path):
-            it.write(f"No data for {y}")
-            continue
+        # mtbs_path = year_to_mtbs_file[y]
+        # if not os.path.exists(mtbs_path):
+        #     it.write(f"No data for {y}")
+        #     continue
         perims = year_to_perims[y]
-        ydf = build_mtbs_year_df(mtbs_path, perims, state)
+        ydf = build_mtbs_year_df(perims, state)
         ypath = pjoin(working_dir, str(y))
         ydf.compute().to_parquet(ypath)
         ydf = dgpd.read_parquet(ypath)
@@ -303,12 +298,12 @@ def _build_mtbs_df(
 
 
 def build_mtbs_df(
-    years, year_to_mtbs_file, year_to_perims, state, out_path, tmp_loc=TMP_LOC
+    years, year_to_perims, state, out_path, tmp_loc=TMP_LOC
 ):
     print("Building mtbs df")
     with tempfile.TemporaryDirectory(dir=tmp_loc) as working_dir:
         df = _build_mtbs_df(
-            years, year_to_mtbs_file, year_to_perims, state, working_dir
+            years, year_to_perims, state, working_dir
         )
         with ProgressBar():
             df.to_parquet(out_path)
@@ -327,15 +322,18 @@ def add_columns_to_df(
     parallel=True,
 ):
     print(f"Adding columns: {columns}")
+    print('Existing columns: ', df.columns)
     # Add columns
     expanded_df = df.assign(**{c: col_type.type(col_default) for c in columns})
+    # show expanded_df
+    print('Expanded columns: ', expanded_df.columns)
     with tempfile.TemporaryDirectory(dir=tmp_loc) as working_dir:
         # Save to disk before applying partition function. to_parquet() has a
         # chance of segfaulting and that chance goes WAY up after adding
         # columns and then mapping a function to partitions. Saving to disk
         # before mapping keeps the odds low.
         path = pjoin(working_dir, "expanded")
-        expanded_df.to_parquet(path)
+        expanded_df.to_parquet(path, index=True)
 
         expanded_df = dgpd.read_parquet(path)
         meta = expanded_df._meta.copy()
@@ -372,7 +370,7 @@ def add_columns_to_df(
 
 if __name__ == "__main__":
 
-    if 0:
+    if 1:
         # State borders
         print("Loading state borders")
         stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
@@ -381,12 +379,10 @@ if __name__ == "__main__":
         states = None
         stdf = None
 
-        # MTBS Perimeters
-        print("Loading MTBS perimeters")
-        perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
-        # print("Loading VIIRS perimeters")
-        # perimdf = dgpd.read_parquet(DATA_LOC + "viirs_perims.parquet").compute().to_crs("EPSG:5071")
-        # perimdf = perimdf.rename(columns={"t": "Ig_Date"})
+        print("Loading VIIRS perimeters")
+        perimdf = dgpd.read_parquet(DATA_LOC + "viirs_perims.parquet").to_crs("EPSG:5071")
+        # rename column t to Ig_Date
+        perimdf = perimdf.rename(columns={"t": "Ig_Date"})
         state_fire_perims = perimdf.clip(state_shape.compute())
         state_fire_perims = (
             state_fire_perims.assign(
@@ -402,23 +398,16 @@ if __name__ == "__main__":
             y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
             for y in YEARS
         }
-        state_fire_perims = None
-
-        year_to_mtbs_file = {
-            y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
-            for y in YEARS
-        }
 
         # print(year_to_mtbs_file)
 
 
-    if 0:
+    if 1:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
-            year_to_mtbs_file,
-            year_to_perims,
-            STATE,
+            year_to_perims=year_to_perims,
+            state=STATE,
             out_path=MTBS_DF_TEMP_PATH_2,
         )
         clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
@@ -442,7 +431,7 @@ if __name__ == "__main__":
     if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(MTBS_DF_PARQUET_PATH_NEW)
+            df = dgpd.read_parquet(CHECKPOINT_2_PATH)
 
         # loop to add all nc features
         for nc_name in NC_KEYSET:
@@ -463,8 +452,8 @@ if __name__ == "__main__":
         df = df.assign(year=U16.type(0))
         df = df.map_partitions(timestamp_to_year_part, meta=df_meta)
         print("Columns: ", df.columns)
-        # df = df.repartition(partition_size="100MB").reset_index(drop=True)
+        df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         df = df.compute()
         with ProgressBar():
-            df.to_parquet(MTBS_DF_TEMP_PATH_2)
+            df.to_parquet(MTBS_DF_TEMP_PATH)
