@@ -1,4 +1,5 @@
 import os
+import time
 import tempfile
 import warnings
 from os.path import join as pjoin
@@ -30,6 +31,7 @@ warnings.filterwarnings(
 
 # Location for temporary storage
 TMP_LOC = "/home/jake/FireLab/Project/data/temp/"
+TMP_LOC2 = "/home/jake/FireLab/Project/data/temp2/"
 DATA_LOC = "/home/jake/FireLab/Project/data/"
 
 STATE = "OR"
@@ -273,8 +275,16 @@ def build_mtbs_year_df(perims_df, state_label):
         perim = perim.copy()
         perim["ig_date"] = date
         perim["state"] = state_label
-        perim["fireid"] = perim["fireid"].astype(str)
-        dfs.append(perim)
+        df = perim.assign(
+            ig_date=lambda frame: dd.to_datetime(
+                frame.ig_date, format="%Y-%m-%d"
+            ),
+            state=lambda frame: frame.state.astype("category"),
+            duration=lambda frame: frame.duration.astype("float32"),
+            buffer=lambda frame: frame["buffer"],
+            fireid=lambda frame: frame.fireid
+        )
+        dfs.append(df)
     return dd.concat(dfs)
 
 
@@ -318,7 +328,8 @@ def add_columns_to_df(
     col_type=F32,
     col_default=np.nan,
     part_func_args=(),
-    tmp_loc=TMP_LOC,
+    # tmp_loc=TMP_LOC,
+    tmp_loc=TMP_LOC2,
     parallel=True,
 ):
     print(f"Adding columns: {columns}")
@@ -327,48 +338,97 @@ def add_columns_to_df(
     expanded_df = df.assign(**{c: col_type.type(col_default) for c in columns})
     # show expanded_df
     print('Expanded columns: ', expanded_df.columns)
-    with tempfile.TemporaryDirectory(dir=tmp_loc) as working_dir:
-        # Save to disk before applying partition function. to_parquet() has a
-        # chance of segfaulting and that chance goes WAY up after adding
-        # columns and then mapping a function to partitions. Saving to disk
-        # before mapping keeps the odds low.
-        path = pjoin(working_dir, "expanded")
-        expanded_df.to_parquet(path, index=True)
+    # with tempfile.TemporaryDirectory(dir=tmp_loc) as working_dir:
+    #     # Save to disk before applying partition function. to_parquet() has a
+    #     # chance of segfaulting and that chance goes WAY up after adding
+    #     # columns and then mapping a function to partitions. Saving to disk
+    #     # before mapping keeps the odds low.
+    #     path = pjoin(working_dir, "expanded")
+    #     print(expanded_df.head())
+    #     # reset the index to fix keyerror not in index
+    #     expanded_df = expanded_df.reset_index()
+    #     expanded_df.to_parquet(path)
 
-        expanded_df = dgpd.read_parquet(path)
-        meta = expanded_df._meta.copy()
-        for c in columns:
-            expanded_df = expanded_df.map_partitions(
-                part_func, c, *part_func_args, meta=meta
-            )
+    #     expanded_df = dgpd.read_parquet(path)
+    #     meta = expanded_df._meta.copy()
+    #     for c in columns:
+    #         expanded_df = expanded_df.map_partitions(
+    #             part_func, c, *part_func_args, meta=meta
+    #         )
 
-        if parallel:
+    #     if parallel:
+    #         with ProgressBar():
+    #             expanded_df.to_parquet(out_path)
+    #     else:
+    #         # Save parts in serial and then assemble into single dataframe
+    #         with tempfile.TemporaryDirectory(dir=tmp_loc) as part_dir:
+    #             dfs = []
+    #             for i, part in enumerate(expanded_df.partitions):
+    #                 # Save part i
+    #                 part_path = pjoin(part_dir, f"part{i:04}")
+    #                 with ProgressBar():
+    #                     part.compute().to_parquet(part_path)
+    #                 # Save paths for opening with dask_geopandas later. Avoid
+    #                 # opening more dataframes in this loop as doing so will
+    #                 # likely cause a segfault. I have no idea why.
+    #                 dfs.append(part_path)
+    #             dfs = [dgpd.read_parquet(p) for p in dfs]
+    #             # Assemble and save to final output location
+    #             expanded_df = dd.concat(dfs)
+    #             with ProgressBar():
+    #                 expanded_df.to_parquet(out_path)
+                    ########################################
+    # Save to disk before applying partition function. to_parquet() has a
+    # chance of segfaulting and that chance goes WAY up after adding
+    # columns and then mapping a function to partitions. Saving to disk
+    # before mapping keeps the odds low.
+    working_dir = tmp_loc
+    path = pjoin(working_dir, "expanded")
+    # show the type of expanded_df
+    print('expanded_df type: ', type(expanded_df))
+    print(expanded_df.head())
+    # reset the index to fix keyerror not in index
+    print(expanded_df)
+    expanded_df = expanded_df.reset_index()
+    print(expanded_df)
+    print(path)
+    expanded_df.to_parquet(path)
+    expanded_df = dgpd.read_parquet(path)
+    meta = expanded_df._meta.copy()
+    for c in columns:
+        expanded_df = expanded_df.map_partitions(
+            part_func, c, *part_func_args, meta=meta
+        )
+    if parallel:
+        with ProgressBar():
+            expanded_df.to_parquet(out_path)
+    else:
+        # Save parts in serial and then assemble into single dataframe
+        with tempfile.TemporaryDirectory(dir=tmp_loc) as part_dir:
+            dfs = []
+            for i, part in enumerate(expanded_df.partitions):
+                # Save part i
+                part_path = pjoin(part_dir, f"part{i:04}")
+                with ProgressBar():
+                    part.compute().to_parquet(part_path)
+                # Save paths for opening with dask_geopandas later. Avoid
+                # opening more dataframes in this loop as doing so will
+                # likely cause a segfault. I have no idea why.
+                dfs.append(part_path)
+            dfs = [dgpd.read_parquet(p) for p in dfs]
+            # Assemble and save to final output location
+            expanded_df = dd.concat(dfs)
             with ProgressBar():
                 expanded_df.to_parquet(out_path)
-        else:
-            # Save parts in serial and then assemble into single dataframe
-            with tempfile.TemporaryDirectory(dir=tmp_loc) as part_dir:
-                dfs = []
-                for i, part in enumerate(expanded_df.partitions):
-                    # Save part i
-                    part_path = pjoin(part_dir, f"part{i:04}")
-                    with ProgressBar():
-                        part.compute().to_parquet(part_path)
-                    # Save paths for opening with dask_geopandas later. Avoid
-                    # opening more dataframes in this loop as doing so will
-                    # likely cause a segfault. I have no idea why.
-                    dfs.append(part_path)
-                dfs = [dgpd.read_parquet(p) for p in dfs]
-                # Assemble and save to final output location
-                expanded_df = dd.concat(dfs)
-                with ProgressBar():
-                    expanded_df.to_parquet(out_path)
     return dgpd.read_parquet(out_path)
 
 
 ### MAIN ###
 
 if __name__ == "__main__":
+
+    # start timer
+    start = time.time()
 
     if 1:
         # State borders
@@ -380,7 +440,7 @@ if __name__ == "__main__":
         stdf = None
 
         print("Loading VIIRS perimeters")
-        perimdf = dgpd.read_parquet(DATA_LOC + "viirs_perims.parquet").to_crs("EPSG:5071")
+        perimdf = gpd.read_parquet(DATA_LOC + "viirs_perims.parquet").to_crs("EPSG:5071")
         # rename column t to Ig_Date
         perimdf = perimdf.rename(columns={"t": "Ig_Date"})
         state_fire_perims = perimdf.clip(state_shape.compute())
@@ -391,7 +451,6 @@ if __name__ == "__main__":
                 )
             )
             .sort_values("Ig_Date")
-            .compute()
         )
         state_fire_perims = state_fire_perims[state_fire_perims.Ig_Date.dt.year.between(2018, 2020)]
         year_to_perims = {
@@ -457,3 +516,7 @@ if __name__ == "__main__":
         df = df.compute()
         with ProgressBar():
             df.to_parquet(MTBS_DF_TEMP_PATH)
+
+    # end timer
+    end = time.time()
+    print(f"Time elapsed: {end - start} seconds")
