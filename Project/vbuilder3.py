@@ -95,6 +95,7 @@ MTBS_DF_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
 MTBS_DF_PARQUET_PATH_NEW = pjoin(TMP_LOC, f"{STATE}_mtbs_new.parquet")
 MTBS_DF_TEMP_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
 MTBS_DF_TEMP_PATH_2 = pjoin(TMP_LOC, f"{STATE}_mtbs_temp_2.parquet")
+VIIRS_DF_PATH = pjoin(TMP_LOC, f"{STATE}_viirs.parquet")
 CHECKPOINT_1_PATH = pjoin(TMP_LOC, "check1")
 CHECKPOINT_2_PATH = pjoin(TMP_LOC, "check2")
 CHECKPOINT_3_PATH = pjoin(TMP_LOC, "check3")
@@ -275,6 +276,7 @@ def clip_and_save_dem_rasters(keys, paths, feature, state):
 
 
 def build_mtbs_year_df(path, perims_df, state_label):
+    path = pjoin(VIIRS_DIR, "viirs_raster.tif")
     rs = Raster(path)
     dfs = []
     for grp in perims_df.groupby("Ig_Date"):
@@ -318,7 +320,6 @@ def build_mtbs_df(
         df = _build_mtbs_df(
             years, year_to_mtbs_file, year_to_perims, state, working_dir
         )
-        print("built df: ", df.head())
         with ProgressBar():
             df.to_parquet(out_path)
     return dgpd.read_parquet(out_path)
@@ -398,11 +399,11 @@ if __name__ == "__main__":
         states = None
         stdf = None
 
-        # MTBS Perimeters
-        print("Loading MTBS perimeters")
-        perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
-        # print("Loading VIIRS perimeters")
-        # perimdf = open_vectors(PATHS["viirs_perim"]).data.to_crs("EPSG:5071")
+        # # MTBS Perimeters
+        # print("Loading MTBS perimeters")
+        # perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
+        print("Loading VIIRS perimeters")
+        perimdf = open_vectors(PATHS["viirs_perim"]).data.to_crs("EPSG:5071")
         # perimdf = dgpd.read_parquet(DATA_LOC + "viirs_perims.parquet").compute().to_crs("EPSG:5071")
         # perimdf = perimdf.rename(columns={"t": "Ig_Date"})
         state_fire_perims = perimdf.clip(state_shape.compute())
@@ -437,14 +438,14 @@ if __name__ == "__main__":
             year_to_mtbs_file,
             year_to_perims,
             STATE,
-            out_path=CHECKPOINT_1_PATH,
+            out_path=CHECKPOINT_3_PATH,
         )
         clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
         df = add_columns_to_df(
             df,
             DEM_KEYS,
             extract_dem_data,
-            CHECKPOINT_1_PATH,
+            CHECKPOINT_4_PATH,
             # Save results in serial to avoid segfaulting. Something about the
             # dem computations makes segfaults extremely likely when saving
             # The computations require a lot of memory which may be what
@@ -454,19 +455,19 @@ if __name__ == "__main__":
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
-            df.to_parquet(CHECKPOINT_2_PATH)
+            df.to_parquet(CHECKPOINT_3_PATH)
         df = None
 
     if 0:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(CHECKPOINT_2_PATH)
+            df = dgpd.read_parquet(CHECKPOINT_3_PATH)
 
         # loop to add all nc features
         for nc_name in NC_KEYSET:
             print(f"Adding {nc_name}")
             df = add_columns_to_df(
-                df, nc_name, partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
+                df, nc_name, partition_extract_nc, CHECKPOINT_4_PATH, parallel=False
             )
         # loop to add all tif features
         # for tif_name in TIF_KEYSET:
@@ -485,4 +486,4 @@ if __name__ == "__main__":
         print("Repartitioning")
         df = df.compute()
         with ProgressBar():
-            df.to_parquet(MTBS_DF_TEMP_PATH)
+            df.to_parquet(VIIRS_DF_PATH)

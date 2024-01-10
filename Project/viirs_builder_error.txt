@@ -1,0 +1,113 @@
+(firelab) jake@katie-Leopard-WS:~/FireLab/Project$ python viirs_data_builder_new.py 
+Loading state borders
+Loading VIIRS perimeters
+Building mtbs df
+MTBS: 100%|███████████████████████████████████████| 3/3 [00:15<00:00,  5.19s/it]
+[########################################] | 100% Completed | 467.98 ms
+                                               geometry  duration  fireid             Ig_Date             ig_date state
+1719  MULTIPOLYGON (((-2237727.741 2438052.370, -223...       0.5  F13066 2018-04-24 12:00:00 2018-04-24 12:00:00    OR
+1733  MULTIPOLYGON (((-2248567.723 2441409.072, -224...       1.0  F13066 2018-04-24 12:00:00 2018-04-24 12:00:00    OR
+1753  MULTIPOLYGON (((-2248563.416 2441416.097, -224...       1.5  F13066 2018-04-25 12:00:00 2018-04-25 12:00:00    OR
+1762  MULTIPOLYGON (((-2248563.416 2441416.097, -224...       2.0  F13066 2018-04-25 12:00:00 2018-04-25 12:00:00    OR
+1775  MULTIPOLYGON (((-2249456.882 2441407.089, -224...       2.5  F13066 2018-04-26 00:00:00 2018-04-26 00:00:00    OR
+DEM Clipping: 100%|████████████████████████████| 4/4 [00:00<00:00, 33091.16it/s]
+Adding columns: ['dem', 'dem_slope', 'dem_aspect', 'dem_flow_acc']
+Existing columns:  Index(['geometry', 'duration', 'fireid', 'Ig_Date', 'ig_date', 'state'], dtype='object')
+Expanded columns:  Index(['geometry', 'duration', 'fireid', 'Ig_Date', 'ig_date', 'state', 'dem',
+       'dem_slope', 'dem_aspect', 'dem_flow_acc'],
+      dtype='object')
+expanded_df type:  <class 'dask_geopandas.core.GeoDataFrame'>
+                                               geometry  duration  fireid             Ig_Date  ... dem dem_slope  dem_aspect  dem_flow_acc
+1719  MULTIPOLYGON (((-2237727.741 2438052.370, -223...       0.5  F13066 2018-04-24 12:00:00  ... NaN       NaN         NaN           NaN
+1733  MULTIPOLYGON (((-2248567.723 2441409.072, -224...       1.0  F13066 2018-04-24 12:00:00  ... NaN       NaN         NaN           NaN
+1753  MULTIPOLYGON (((-2248563.416 2441416.097, -224...       1.5  F13066 2018-04-25 12:00:00  ... NaN       NaN         NaN           NaN
+1762  MULTIPOLYGON (((-2248563.416 2441416.097, -224...       2.0  F13066 2018-04-25 12:00:00  ... NaN       NaN         NaN           NaN
+1775  MULTIPOLYGON (((-2249456.882 2441407.089, -224...       2.5  F13066 2018-04-26 00:00:00  ... NaN       NaN         NaN           NaN
+
+[5 rows x 10 columns]
+Traceback (most recent call last):
+  File "/home/jake/FireLab/Project/viirs_data_builder_new.py", line 444, in <module>
+    df = add_columns_to_df(
+  File "/home/jake/FireLab/Project/viirs_data_builder_new.py", line 357, in add_columns_to_df
+    expanded_df.to_parquet(path)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask_geopandas/core.py", line 629, in to_parquet
+    return to_parquet(self, path, *args, **kwargs)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/dataframe/io/parquet/core.py", line 1060, in to_parquet
+    out = out.compute(**compute_kwargs)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/base.py", line 310, in compute
+    (result,) = compute(self, traverse=False, **kwargs)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/base.py", line 595, in compute
+    results = schedule(dsk, keys, **kwargs)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/threaded.py", line 89, in get
+    results = get_async(
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/local.py", line 511, in get_async
+    raise_exception(exc, tb)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/local.py", line 319, in reraise
+    raise exc
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/local.py", line 224, in execute_task
+    result = _execute_task(task, data)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/optimization.py", line 992, in __call__
+    return core.get(self.dsk, self.outkey, dict(zip(self.inkeys, args)))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 151, in get
+    result = _execute_task(task, cache)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in <genexpr>
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in <genexpr>
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in <genexpr>
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 115, in _execute_task
+    return [_execute_task(a, cache) for a in arg]
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 115, in <listcomp>
+    return [_execute_task(a, cache) for a in arg]
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in <genexpr>
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 115, in _execute_task
+    return [_execute_task(a, cache) for a in arg]
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 115, in <listcomp>
+    return [_execute_task(a, cache) for a in arg]
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in <genexpr>
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in <genexpr>
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in <genexpr>
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in <genexpr>
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/core.py", line 121, in _execute_task
+    return func(*(_execute_task(a, cache) for a in args))
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/dataframe/io/parquet/core.py", line 96, in __call__
+    return read_parquet_part(
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/dataframe/io/parquet/core.py", line 657, in read_parquet_part
+    dfs = [
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/dataframe/io/parquet/core.py", line 658, in <listcomp>
+    func(
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/dask/dataframe/io/parquet/arrow.py", line 690, in read_partition
+    df = df[list(columns_and_parts)]
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/geopandas/geodataframe.py", line 1474, in __getitem__
+    result = super().__getitem__(key)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/pandas/core/frame.py", line 3767, in __getitem__
+    indexer = self.columns._get_indexer_strict(key, "columns")[1]
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/pandas/core/indexes/base.py", line 5877, in _get_indexer_strict
+    self._raise_if_missing(keyarr, indexer, axis_name)
+  File "/home/jake/.conda/envs/firelab/lib/python3.9/site-packages/pandas/core/indexes/base.py", line 5941, in _raise_if_missing
+    raise KeyError(f"{not_found} not in index")
+KeyError: "['fireid', 'duration', 'Ig_Date'] not in index"

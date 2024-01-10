@@ -76,7 +76,7 @@ PATHS = {
     "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
     "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
     "viirs_root": VIIRS_DIR,
-    "viirs_perim": pjoin(VIIRS_DIR, "viirs_perims.parquet"),
+    "viirs_perim": pjoin(VIIRS_DIR, "viirs_perims_shapefile.shp"),
 }
 YEARS = list(range(2018, 2021))
 GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
@@ -97,6 +97,8 @@ MTBS_DF_TEMP_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
 MTBS_DF_TEMP_PATH_2 = pjoin(TMP_LOC, f"{STATE}_mtbs_temp_2.parquet")
 CHECKPOINT_1_PATH = pjoin(TMP_LOC, "check1")
 CHECKPOINT_2_PATH = pjoin(TMP_LOC, "check2")
+CHECKPOINT_3_PATH = pjoin(TMP_LOC, "check3")
+CHECKPOINT_4_PATH = pjoin(TMP_LOC, "check4")
 
 
 def hillshade(slope, aspect, azimuth=180, zenith=45):
@@ -273,11 +275,14 @@ def clip_and_save_dem_rasters(keys, paths, feature, state):
 
 def build_mtbs_year_df(perims_df, state_label):
     dfs = []
-    for grp in perims_df.groupby("Ig_Date"):
-        date, perim = grp
-        perim = perim.copy()
+    # print("perims df at build_mtbs_year_df: ", perims_df.head())
+    for grp in perims_df.groupby(["Ig_Date", "duration"]):
+        dates, perim = grp
+        date = dates[0]
+        duration = dates[1]
         perim["ig_date"] = date
         perim["state"] = state_label
+        perim["duration"] = duration
         df = perim.assign(
             ig_date=lambda frame: dd.to_datetime(
                 frame.ig_date, format="%Y-%m-%d"
@@ -286,6 +291,7 @@ def build_mtbs_year_df(perims_df, state_label):
             duration=lambda frame: frame.duration.astype("float32"),
             fireid=lambda frame: frame.fireid
         )
+        # df.drop(columns=["Ig_Date", "duration", "fireid"], inplace=True)
         dfs.append(df)
     return dd.concat(dfs)
 
@@ -310,7 +316,7 @@ def _build_mtbs_df(
 
 
 def build_mtbs_df(
-    years, year_to_perims, state, out_path, tmp_loc=TMP_LOC
+    years, year_to_perims, state, out_path, tmp_loc=TMP_LOC2
 ):
     print("Building mtbs df")
     with tempfile.TemporaryDirectory(dir=tmp_loc) as working_dir:
@@ -340,45 +346,46 @@ def add_columns_to_df(
     expanded_df = df.assign(**{c: col_type.type(col_default) for c in columns})
     # show expanded_df
     print('Expanded columns: ', expanded_df.columns)
-    # Save to disk before applying partition function. to_parquet() has a
-    # chance of segfaulting and that chance goes WAY up after adding
-    # columns and then mapping a function to partitions. Saving to disk
-    # before mapping keeps the odds low.
-    working_dir = tmp_loc
-    path = pjoin(working_dir, "expanded")
-    # show the type of expanded_df
-    print('expanded_df type: ', type(expanded_df))
-    print(expanded_df.head())
-    # reset the index to fix keyerror not in index
-    expanded_df = expanded_df.reset_index()
-    expanded_df.to_parquet(path)
-    expanded_df = dgpd.read_parquet(path)
-    meta = expanded_df._meta.copy()
-    for c in columns:
-        expanded_df = expanded_df.map_partitions(
-            part_func, c, *part_func_args, meta=meta
-        )
-    if parallel:
-        with ProgressBar():
-            expanded_df.to_parquet(out_path)
-    else:
-        # Save parts in serial and then assemble into single dataframe
-        with tempfile.TemporaryDirectory(dir=tmp_loc) as part_dir:
-            dfs = []
-            for i, part in enumerate(expanded_df.partitions):
-                # Save part i
-                part_path = pjoin(part_dir, f"part{i:04}")
-                with ProgressBar():
-                    part.compute().to_parquet(part_path)
-                # Save paths for opening with dask_geopandas later. Avoid
-                # opening more dataframes in this loop as doing so will
-                # likely cause a segfault. I have no idea why.
-                dfs.append(part_path)
-            dfs = [dgpd.read_parquet(p) for p in dfs]
-            # Assemble and save to final output location
-            expanded_df = dd.concat(dfs)
+    with tempfile.TemporaryDirectory(dir=tmp_loc) as working_dir:
+        # Save to disk before applying partition function. to_parquet() has a
+        # chance of segfaulting and that chance goes WAY up after adding
+        # columns and then mapping a function to partitions. Saving to disk
+        # before mapping keeps the odds low.
+        # working_dir = tmp_loc
+        path = pjoin(working_dir, "expanded")
+        # show the type of expanded_df
+        print('expanded_df type: ', type(expanded_df))
+        print(expanded_df.head())
+        # reset the index to fix keyerror not in index
+        expanded_df = expanded_df.reset_index()
+        expanded_df.to_parquet(path)
+        expanded_df = dgpd.read_parquet(path)
+        meta = expanded_df._meta.copy()
+        for c in columns:
+            expanded_df = expanded_df.map_partitions(
+                part_func, c, *part_func_args, meta=meta
+            )
+        if parallel:
             with ProgressBar():
                 expanded_df.to_parquet(out_path)
+        else:
+            # Save parts in serial and then assemble into single dataframe
+            with tempfile.TemporaryDirectory(dir=tmp_loc) as part_dir:
+                dfs = []
+                for i, part in enumerate(expanded_df.partitions):
+                    # Save part i
+                    part_path = pjoin(part_dir, f"part{i:04}")
+                    with ProgressBar():
+                        part.compute().to_parquet(part_path)
+                    # Save paths for opening with dask_geopandas later. Avoid
+                    # opening more dataframes in this loop as doing so will
+                    # likely cause a segfault. I have no idea why.
+                    dfs.append(part_path)
+                dfs = [dgpd.read_parquet(p) for p in dfs]
+                # Assemble and save to final output location
+                expanded_df = dd.concat(dfs)
+                with ProgressBar():
+                    expanded_df.to_parquet(out_path)
     return dgpd.read_parquet(out_path)
 
 
@@ -399,21 +406,24 @@ if __name__ == "__main__":
         stdf = None
 
         print("Loading VIIRS perimeters")
-        perimdf = gpd.read_parquet(PATHS["viirs_perim"]).to_crs("EPSG:5071")
+        perimdf = open_vectors(PATHS["viirs_perim"]).data.to_crs("EPSG:5071")
         # rename column t to Ig_Date
-        perimdf = perimdf.rename(columns={"t": "Ig_Date"})
+        # perimdf = perimdf.rename(columns={"t": "Ig_Date"})
         state_fire_perims = perimdf.clip(state_shape.compute())
         state_fire_perims = (
             state_fire_perims.assign(
                 Ig_Date=lambda frame: dd.to_datetime(
                     frame.Ig_Date, format="%Y-%m-%d"
-                )
+                ),
+                fireid=lambda frame: frame.fireid.astype(str),
+                duration=lambda frame: frame.duration.astype("float32"),
             )
             .sort_values("Ig_Date")
+            .compute()
         )
         state_fire_perims = state_fire_perims[state_fire_perims.Ig_Date.dt.year.between(2018, 2020)]
         # drop buffer column
-        state_fire_perims = state_fire_perims.drop(columns=["buffer"])
+        # state_fire_perims = state_fire_perims.drop(columns=["buffer"])
         # print(state_fire_perims.head())
         year_to_perims = {
             y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
@@ -436,35 +446,35 @@ if __name__ == "__main__":
             state=STATE,
             out_path=MTBS_DF_TEMP_PATH_2,
         )
-        print(df.head())
+        # print(df.head())
         clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
         df = add_columns_to_df(
             df,
             DEM_KEYS,
             extract_dem_data,
-            CHECKPOINT_1_PATH,
+            CHECKPOINT_3_PATH,
             # Save results in serial to avoid segfaulting. Something about the
             # dem computations makes segfaults extremely likely when saving
             # The computations require a lot of memory which may be what
             # triggers the fault.
-            parallel=True,
+            parallel=False,
         )
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
-            df.to_parquet(CHECKPOINT_2_PATH)
+            df.to_parquet(CHECKPOINT_4_PATH)
         df = None
 
     if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(CHECKPOINT_2_PATH)
+            df = dgpd.read_parquet(CHECKPOINT_4_PATH)
 
         # loop to add all nc features
         for nc_name in NC_KEYSET:
             print(f"Adding {nc_name}")
             df = add_columns_to_df(
-                df, nc_name, partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
+                df, nc_name, partition_extract_nc, CHECKPOINT_3_PATH, parallel=False
             )
         # loop to add all tif features
         # for tif_name in TIF_KEYSET:
