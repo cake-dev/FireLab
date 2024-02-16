@@ -357,46 +357,46 @@ DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
 
 if __name__ == "__main__":
 
-    # # State borders
-    # print("Loading state borders")
-    # stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
-    # states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
-    # state_shape = states[STATE]
-    # states = None
-    # stdf = None
+    # State borders
+    print("Loading state borders")
+    stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
+    states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
+    state_shape = states[STATE]
+    states = None
+    stdf = None
 
-    # # MTBS Perimeters
-    # print("Loading MTBS perimeters")
-    # perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
-    # state_fire_perims = perimdf.clip(state_shape.compute())
-    # state_fire_perims = (
-    #     state_fire_perims.assign(
-    #         Ig_Date=lambda frame: dd.to_datetime(
-    #             frame.Ig_Date, format="%Y-%m-%d"
-    #         )
-    #     )
-    #     .sort_values("Ig_Date")
-    #     .compute()
-    # )
-    # year_to_perims = {
-    #     y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
-    #     for y in YEARS
-    # }
-    # state_fire_perims = None
+    # MTBS Perimeters
+    print("Loading MTBS perimeters")
+    perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
+    state_fire_perims = perimdf.clip(state_shape.compute())
+    state_fire_perims = (
+        state_fire_perims.assign(
+            Ig_Date=lambda frame: dd.to_datetime(
+                frame.Ig_Date, format="%Y-%m-%d"
+            )
+        )
+        .sort_values("Ig_Date")
+        .compute()
+    )
+    year_to_perims = {
+        y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
+        for y in YEARS
+    }
+    state_fire_perims = None
 
-    # year_to_mtbs_file = {
-    #     y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
-    #     for y in YEARS
-    # }
+    year_to_mtbs_file = {
+        y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
+        for y in YEARS
+    }
 
-    # print(year_to_mtbs_file)
+    print(year_to_mtbs_file)
 
     mtbs_df_path = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
     mtbs_df_temp_path = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
     checkpoint_1_path = pjoin(TMP_LOC, "check1")
     checkpoint_2_path = pjoin(TMP_LOC, "check2")
 
-    if 0:
+    if 1:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
@@ -425,20 +425,21 @@ if __name__ == "__main__":
         with ProgressBar():
             df.to_parquet(checkpoint_2_path)
 
-    if 0:
+    if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(mtbs_df_temp_path)
-        # df = add_columns_to_df(
-        #     df, NDVI_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
-        # ) for NC data
+            df = dgpd.read_parquet(checkpoint_2_path)
         df = add_columns_to_df(
-            df, LANDFIRE_KEYS, partition_extract_tif, checkpoint_1_path, parallel=False
-        ) # for TIF data
+            df, NDVI_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
+        ) #for NC data
+        # df = add_columns_to_df(
+        #     df, LANDFIRE_KEYS, partition_extract_tif, checkpoint_1_path, parallel=False
+        # ) # for TIF data
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
-            df.to_parquet(mtbs_df_path)
+            df.to_parquet(mtbs_df_temp_path)
+        df = None
 
     if 1:
         with ProgressBar():

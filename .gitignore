@@ -162,3 +162,11 @@ cython_debug/
 Project/data/*
 TODO.txt
 scratch.txt
+OtherWork/LidarProcessing.ipynb
+OtherWork/rs_las.py
+OtherWork/testnb.ipynb
+OtherWork/lidar_cloud/MT_Helena_2012_000085.copc.laz
+OtherWork/lidar_cloud/MT_Helena_2012_000108.copc.laz
+OtherWork/lidar_cloud/MT_Helena_2012_000109.copc.laz
+OtherWork/lidar_cloud/MT_Helena_2012_000134.copc.laz
+OtherWork/lidar_cloud/MT_Helena_2012_000135.copc.laz

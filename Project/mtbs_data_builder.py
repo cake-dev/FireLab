@@ -457,7 +457,7 @@ if __name__ == "__main__":
             df.to_parquet(CHECKPOINT_2_PATH)
         df = None
 
-    if 0:
+    if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
             df = dgpd.read_parquet(CHECKPOINT_2_PATH)

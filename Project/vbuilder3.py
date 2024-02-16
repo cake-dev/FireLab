@@ -349,7 +349,7 @@ def add_columns_to_df(
         # columns and then mapping a function to partitions. Saving to disk
         # before mapping keeps the odds low.
         path = pjoin(working_dir, "expanded")
-        print(expanded_df.head())
+        # print(expanded_df.head())
         # reset the index to fix keyerror not in index
         # expanded_df = expanded_df.reset_index()
         expanded_df.to_parquet(path)
