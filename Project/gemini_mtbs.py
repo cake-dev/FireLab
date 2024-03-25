@@ -16,7 +16,6 @@ import tqdm
 import xarray as xr
 from dask.diagnostics import ProgressBar
 from rasterio.crs import CRS
-
 from raster_tools import Raster, Vector, open_vectors, clipping, zonal
 from raster_tools.dtypes import F32, U8, U16
 
@@ -28,13 +27,11 @@ warnings.filterwarnings(
     "ignore", message=".*Slicing is producing a large chunk.*"
 )
 
-
 # Location for temporary storage
 TMP_LOC = "/home/jake/FireLab/Project/data/temp/"
 TMP_LOC2 = "/home/jake/FireLab/Project/data/temp2/"
 TMP_LOC3 = "/home/jake/FireLab/Project/data/temp3/"
 DATA_LOC = "/home/jake/FireLab/Project/data/"
-
 STATE = "OR"
 
 # Location of clipped DEM files
@@ -78,7 +75,9 @@ PATHS = {
     "viirs_root": VIIRS_DIR,
     "viirs_perim": pjoin(VIIRS_DIR, "viirs_perims_shapefile.shp"),
 }
+
 YEARS = list(range(2018, 2021))
+
 GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
 DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS))
@@ -89,7 +88,7 @@ DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
 
 # NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
 NC_KEYSET = [DM_KEYS, GM_KEYS, BIOMASS_KEYS, NDVI_KEYS]
-TIF_KEYSET = [AW_KEYS, LANDFIRE_KEYS] 
+TIF_KEYSET = [AW_KEYS, LANDFIRE_KEYS]
 
 MTBS_DF_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
 MTBS_DF_PARQUET_PATH_NEW = pjoin(TMP_LOC, f"{STATE}_mtbs_new.parquet")
@@ -100,92 +99,81 @@ CHECKPOINT_2_PATH = pjoin(TMP_LOC, "check2")
 CHECKPOINT_3_PATH = pjoin(TMP_LOC, "check3")
 CHECKPOINT_4_PATH = pjoin(TMP_LOC, "check4")
 
+
 def hillshade(slope, aspect, azimuth=180, zenith=45):
-    # Convert angles from degrees to radians
+    """Calculates hillshade using vectorized NumPy operations."""
     azimuth_rad = np.radians(azimuth)
     zenith_rad = np.radians(zenith)
     slope_rad = np.radians(slope)
     aspect_rad = np.radians(aspect)
-
-    # Calculate hillshade
-    shaded = np.sin(zenith_rad) * np.sin(slope_rad) + \
-             np.cos(zenith_rad) * np.cos(slope_rad) * \
-             np.cos(azimuth_rad - aspect_rad)
-    # scale to 0-255
+    shaded = np.sin(zenith_rad) * np.sin(slope_rad) + np.cos(zenith_rad) * np.cos(
+        slope_rad
+    ) * np.cos(azimuth_rad - aspect_rad)
     shaded = 255 * (shaded + 1) / 2
-    # round hillshade to nearest integer
     shaded = np.rint(shaded)
-    # convert to uint8
-    # Ensure non-finite values are not converted to int
-    # shaded = np.where(np.isfinite(shaded), shaded.astype(np.uint8), np.nan)
-    return shaded
+    return shaded.astype(U8)
+
 
 def hillshade_partition(df, zenith, azimuth):
-    # Apply the hillshade function to the slope and aspect columns
     df['hillshade'] = hillshade(df['dem_slope'], df['dem_aspect'], azimuth, zenith)
     return df
 
+
 def timestamp_to_year_part(df):
-    # Assuming 'ig_date' is the column with timestamp data
     df['year'] = df['ig_date'].dt.year
     return df
 
+
 def get_nc_var_name(ds, nc_feat_name):
-    # Find the data variable in a nc xarray.Dataset
     if nc_feat_name.startswith("dm"):
-        var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[0] # for DAYMET ONLY!!
+        var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[0]  # for DAYMET ONLY!!
     else:
         var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
     return var_name
 
 
 def netcdf_to_raster(path, date, nc_feature_name):
-    # This produces a Dataset. We need to grab the DataArray inside that
-    # contains the data of interest.
-    nc_ds = xr.open_dataset(path, chunks={"day": 1})#, decode_times=False)
+    """Optimized function for converting NetCDF data to Raster objects."""
+    nc_ds = xr.open_dataset(path, chunks={"day": 1})
     if nc_feature_name == "ndvi":
         nc_ds2 = nc_ds.drop_vars(
-        ["latitude_bnds", "longitude_bnds", "time_bnds"]
-        ).rio.write_crs("EPSG:5071") # FOR NDVI ONLY!!
+            ["latitude_bnds", "longitude_bnds", "time_bnds"]
+        ).rio.write_crs("EPSG:5070")  # FOR NDVI ONLY!!
     elif nc_feature_name.startswith("dm_"):
-        nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
-        # nc_ds = nc_ds.rio.write_crs(
-        #     nc_ds.coords["lambert_conformal_conic"].spatial_ref
-        # )  # FOR DAYMET ONLY!!
+        nc_ds2 = nc_ds.rio.write_crs("EPSG:5070")  # FOR DAYMET ONLY!!
         nc_ds2 = nc_ds2.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
         nc_ds2 = nc_ds2.drop_vars(["lat", "lon", "time_bnds"])  # FOR DAYMET ONLY!!
-        nc_ds = None # FOR DAYMET ONLY!!
+        nc_ds = None  # FOR DAYMET ONLY!!
         nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
     else:
-        nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")
+        nc_ds2 = nc_ds.rio.write_crs("EPSG:5070")
 
-    # Find variable name
     var_name = get_nc_var_name(nc_ds2, nc_feature_name)
-    # print(f"var_name: {var_name}")
-    # Extract
     var_da = nc_ds2[var_name]
-    # print(f"{var_da = }")
+
     if nc_feature_name.startswith("gm_"):
-        var_da = var_da.sel(day=date, method="nearest") # for GM
+        var_da = var_da.sel(day=date, method="nearest")  # for GM
     else:
-        var_da = var_da.sel(time=date, method="nearest") # for DM and BM and NDVI
+        var_da = var_da.sel(time=date, method="nearest")  # for DM and BM and NDVI
+
     if nc_feature_name.startswith("ndvi"):
         xrs = xr.DataArray(
-            var_da.data, dims=("y", "x"), coords=(var_da.latitude.data, var_da.longitude.data)
-        ).expand_dims("band") # FOR NDVI ONLY!!
+            var_da.data,
+            dims=("y", "x"),
+            coords=(var_da.latitude.data, var_da.longitude.data),
+        ).expand_dims("band")  # FOR NDVI ONLY!!
     else:
         xrs = xr.DataArray(
             var_da.data, dims=("y", "x"), coords=(var_da.lat.data, var_da.lon.data)
-        ).expand_dims("band") # For non-NDVI
+        ).expand_dims("band")  # For non-NDVI
+
     xrs["band"] = [1]
-    # Set CRS in raster compliant format
     xrs = xrs.rio.write_crs(nc_ds2.crs.spatial_ref)
     return Raster(xrs)
 
 
 def extract_nc_data(df, nc_name):
     assert df.ig_date.unique().size == 1
-    # print(f"{gm_name}: {df.columns = }, {len(df) = }")
     date = df.ig_date.values[0]
     print(f"{nc_name}: starting {date}")
     rs = netcdf_to_raster(PATHS[nc_name], date, nc_name)
@@ -201,7 +189,7 @@ def extract_nc_data(df, nc_name):
         .compute()
     )
     df[nc_name].values[:] = rdf[nc_name].values
-    # print(f"{nc_name}: finished {date}")
+    print(f"{nc_name}: finished {date}")
     return df
 
 
@@ -224,6 +212,7 @@ def extract_dem_data(df, key):
     df[key].values[:] = rdf.extracted.values
     return df
 
+
 def extract_tif_data(df, key):
     state = df.state.values[0]
     path = PATHS[key]
@@ -241,24 +230,20 @@ def extract_tif_data(df, key):
 
 
 def partition_extract_nc(df, key):
-    # This func wraps extract_nc_data. It groups the partition in to sub
-    # dataframes with the same date and then applies extract_nc_data to
-    # each and reassembles the results into an output dataframe.
     parts = []
     for group in df.groupby("ig_date", sort=True):
         _, gdf = group
         parts.append(extract_nc_data(gdf, key))
     return pd.concat(parts)
 
+
 def partition_extract_tif(df, key):
-    # This func wraps extract_tif_data. It groups the partition in to sub
-    # dataframes with the same date and then applies extract_tif_data to
-    # each and reassembles the results into an output dataframe.
     parts = []
     for group in df.groupby("ig_date", sort=True):
         _, gdf = group
         parts.append(extract_tif_data(gdf, key))
     return pd.concat(parts)
+
 
 def clip_and_save_dem_rasters(keys, paths, feature, state):
     feature = feature.compute()
@@ -331,67 +316,47 @@ def add_columns_to_df(
     col_type=F32,
     col_default=np.nan,
     part_func_args=(),
-    # tmp_loc=TMP_LOC,
     tmp_loc=TMP_LOC2,
     parallel=True,
 ):
     print(f"Adding columns: {columns}")
     print('Existing columns: ', df.columns)
-    # Add columns
     expanded_df = df.assign(**{c: col_type.type(col_default) for c in columns})
-    # show expanded_df
     print('Expanded columns: ', expanded_df.columns)
     with tempfile.TemporaryDirectory(dir=tmp_loc) as working_dir:
-        # Save to disk before applying partition function. to_parquet() has a
-        # chance of segfaulting and that chance goes WAY up after adding
-        # columns and then mapping a function to partitions. Saving to disk
-        # before mapping keeps the odds low.
         path = pjoin(working_dir, "expanded")
         print(expanded_df.head())
-        # reset the index to fix keyerror not in index
-        # expanded_df = expanded_df.reset_index()
         expanded_df.to_parquet(path)
-
         expanded_df = dgpd.read_parquet(path)
         meta = expanded_df._meta.copy()
         for c in columns:
             expanded_df = expanded_df.map_partitions(
                 part_func, c, *part_func_args, meta=meta
             )
-
         if parallel:
             with ProgressBar():
                 expanded_df.to_parquet(out_path)
         else:
-            # Save parts in serial and then assemble into single dataframe
             with tempfile.TemporaryDirectory(dir=tmp_loc) as part_dir:
                 dfs = []
                 for i, part in enumerate(expanded_df.partitions):
-                    # Save part i
                     part_path = pjoin(part_dir, f"part{i:04}")
                     with ProgressBar():
                         part.compute().to_parquet(part_path)
-                    # Save paths for opening with dask_geopandas later. Avoid
-                    # opening more dataframes in this loop as doing so will
-                    # likely cause a segfault. I have no idea why.
                     dfs.append(part_path)
                 dfs = [dgpd.read_parquet(p) for p in dfs]
-                # Assemble and save to final output location
                 expanded_df = dd.concat(dfs)
                 with ProgressBar():
                     expanded_df.to_parquet(out_path)
     return dgpd.read_parquet(out_path)
 
 
-
 ### MAIN ###
-
 if __name__ == "__main__":
-
     if 1:
         # State borders
         print("Loading state borders")
-        stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
+        stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5070")
         states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
         state_shape = states[STATE]
         states = None
@@ -399,11 +364,12 @@ if __name__ == "__main__":
 
         # MTBS Perimeters
         print("Loading MTBS perimeters")
-        perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
+        perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5070")
         # print("Loading VIIRS perimeters")
-        # perimdf = open_vectors(PATHS["viirs_perim"]).data.to_crs("EPSG:5071")
-        # perimdf = dgpd.read_parquet(DATA_LOC + "viirs_perims.parquet").compute().to_crs("EPSG:5071")
+        # perimdf = open_vectors(PATHS["viirs_perim"]).data.to_crs("EPSG:5070")
+        # perimdf = dgpd.read_parquet(DATA_LOC + "viirs_perims.parquet").compute().to_crs("EPSG:5070")
         # perimdf = perimdf.rename(columns={"t": "Ig_Date"})
+
         state_fire_perims = perimdf.clip(state_shape.compute())
         state_fire_perims = (
             state_fire_perims.assign(
@@ -414,7 +380,9 @@ if __name__ == "__main__":
             .sort_values("Ig_Date")
             .compute()
         )
-        state_fire_perims = state_fire_perims[state_fire_perims.Ig_Date.dt.year.between(2018, 2020)]
+        state_fire_perims = state_fire_perims[
+            state_fire_perims.Ig_Date.dt.year.between(2018, 2020)
+        ]
         year_to_perims = {
             y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
             for y in YEARS
@@ -422,12 +390,9 @@ if __name__ == "__main__":
         state_fire_perims = None
 
         year_to_mtbs_file = {
-            y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
-            for y in YEARS
+            y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif") for y in YEARS
         }
-
         # print(year_to_mtbs_file)
-
 
     if 1:
         # code below for creating a new dataset for a new state / region
@@ -438,25 +403,25 @@ if __name__ == "__main__":
             STATE,
             out_path=CHECKPOINT_1_PATH,
         )
+
         clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
+
         df = add_columns_to_df(
             df,
             DEM_KEYS,
             extract_dem_data,
             CHECKPOINT_1_PATH,
-            # Save results in serial to avoid segfaulting. Something about the
-            # dem computations makes segfaults extremely likely when saving
-            # The computations require a lot of memory which may be what
-            # triggers the fault.
             parallel=False,
         )
+
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
             df.to_parquet(CHECKPOINT_2_PATH)
+
         df = None
 
-    if 0:
+    if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
             df = dgpd.read_parquet(CHECKPOINT_2_PATH)
@@ -467,21 +432,26 @@ if __name__ == "__main__":
             df = add_columns_to_df(
                 df, nc_name, partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
             )
+
         # loop to add all tif features
         # for tif_name in TIF_KEYSET:
         #     print(f"Adding {tif_name}")
         #     df = add_columns_to_df(
         #         df, [tif_name], partition_extract_tif, CHECKPOINT_1_PATH, parallel=False
         #     )
+
         # add hillshade and year columns
         df_meta = df._meta.copy()
         df = df.assign(hillshade=U8.type(0))
         df = df.map_partitions(hillshade_partition, 45, 180, meta=df_meta)
         df = df.assign(year=U16.type(0))
         df = df.map_partitions(timestamp_to_year_part, meta=df_meta)
+
         print("Columns: ", df.columns)
+
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
+
         df = df.compute()
         with ProgressBar():
             df.to_parquet(MTBS_DF_TEMP_PATH)

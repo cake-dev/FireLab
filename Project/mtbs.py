@@ -389,7 +389,7 @@ if __name__ == "__main__":
         for y in YEARS
     }
 
-    print(year_to_mtbs_file)
+    # print(year_to_mtbs_file)
 
     mtbs_df_path = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
     mtbs_df_temp_path = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
