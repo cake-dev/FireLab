@@ -461,6 +461,8 @@ if __name__ == "__main__":
         with ProgressBar():
             df = dgpd.read_parquet(CHECKPOINT_2_PATH)
 
+        print("Columns: ", df.columns)
+
         # loop to add all nc features
         for nc_name in NC_KEYSET:
             print(f"Adding {nc_name}")

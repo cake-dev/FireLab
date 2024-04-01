@@ -454,6 +454,8 @@ if __name__ == "__main__":
         print("Clipping DEMs")
         clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
 
+        # maybe clip dem to perims here and use as year_to_mtbs_file?
+
         # replace year_to_mtbs_file with the main dem
         print("Loading DEM")
         year_to_mtbs_file = {
