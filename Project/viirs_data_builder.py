@@ -463,6 +463,8 @@ if __name__ == "__main__":
             for y in YEARS
         }
 
+        print(get_state_dem_path("dem", STATE))
+
         print(year_to_mtbs_file)
 
 
