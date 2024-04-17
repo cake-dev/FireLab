@@ -182,7 +182,7 @@ def netcdf_to_raster(path, date, nc_feature_name):
         ).expand_dims("band") # For non-NDVI
     xrs["band"] = [1]
     # Set CRS in raster compliant format
-    xrs = xrs.rio.write_crs(nc_ds2.crs)#.spatial_ref)
+    xrs = xrs.rio.write_crs(nc_ds2.crs.spatial_ref)
     print("XRS:")
     print(xrs)
     return Raster(xrs)
@@ -460,8 +460,6 @@ if __name__ == "__main__":
         with ProgressBar():
             df.to_parquet(CHECKPOINT_2_PATH) 
         df = None
-
-        ## NOTE: THE ABOVE CODE WORKS.  I will need to replace the mtbs tif with the dem tif and the mtbs perim with the viirs perim, or something
 
     if 1:
         # code below used to add new features to the dataset
