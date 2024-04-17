@@ -21,26 +21,30 @@ warnings.filterwarnings(
 # Location for temporary storage
 TMP_LOC = "/home/jake/FireLab/Project/data/temp/"
 
-STATE = "OR"
-YEARS = [2020]
+STATE = "MT"
+YEARS = [2021]
 
 # location of data files
-DATA_LOC = "/home/jake/FireLab/Project/data/"
-EDNA_DIR = pjoin(DATA_LOC, "terrain")
-MTBS_DIR = pjoin(DATA_LOC, "MTBS_Data")
+DATA_LOC = "/home/jake/FireLab/Project/data/mtbs_to_parquet"
 
 OUT_PATH = pjoin(DATA_LOC, "mtbs_output")
 
 PATHS = {
-    "states": pjoin(EDNA_DIR, "state_borders/cb_2018_us_state_5m.shp"),
-    "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
-    "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
+    '''
+    states: shapefile of state borders (required for clipping)
+    mtbs_root: root directory for MTBS burn mosaic (title like mtbs_MT_2021.tif)
+    mtbs_perim: shapefile of MTBS perimeter (title like mt4655111135620210710_20210708_20220711_burn_bndy.shp)
+    '''
+    "states": pjoin(DATA_LOC, "state_borders/cb_2018_us_state_5m.shp"),
+    "mtbs_root": pjoin(DATA_LOC, "MTBS_BSmosaics/2021/"),
+    "mtbs_perim": pjoin(DATA_LOC, "mt465/mt4655111135620210710_20210708_20220711_burn_bndy.shp"),
 }
 
 def build_mtbs_year_df(path, perims_df, state_label):
     rs = Raster(path)
     dfs = []
     for grp in perims_df.groupby("Ig_Date"):
+        print("grp: ", grp)
         date, perim = grp
         df = (
             clipping.clip(perim, rs)
@@ -110,7 +114,7 @@ if __name__ == "__main__":
             .sort_values("Ig_Date")
             .compute()
         )
-        state_fire_perims = state_fire_perims[state_fire_perims.Ig_Date.dt.year.between(2018, 2020)]
+        state_fire_perims = state_fire_perims[state_fire_perims.Ig_Date.dt.year.between(2018, 2021)]
         year_to_perims = {
             y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
             for y in YEARS
@@ -129,5 +133,5 @@ if __name__ == "__main__":
             year_to_mtbs_file,
             year_to_perims,
             STATE,
-            out_path=pjoin(OUT_PATH, f"{STATE}_mtbs.parquet")
+            out_path=pjoin(OUT_PATH, f"mt4655111135620210710_mtbs.parquet") # ENTER FILENAME HERE
         )

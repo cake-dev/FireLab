@@ -52,8 +52,8 @@ PATHS = {
     "dem_slope": pjoin(EDNA_DIR, "us_slope/us_slope/slope/hdr.adf"),
     "dem_aspect": pjoin(EDNA_DIR, "us_aspect/aspect/hdr.adf"),
     "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/us_flow_acc/flow_acc/hdr.adf"),
-    # "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_1986_2020_weekly.nc"),
-    # "gm_vpd": pjoin(FEATURE_DIR, "gridmet/vpd_1986_2020_weekly.nc"),
+    "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_1986_2020_weekly.nc"),
+    "gm_vpd": pjoin(FEATURE_DIR, "gridmet/vpd_1986_2020_weekly.nc"),
     "aw_mat": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MAT.tif"),
     "aw_mcmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MCMT.tif"),
     "aw_mwmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MWMT.tif"),
@@ -79,7 +79,7 @@ PATHS = {
     "viirs_perim": pjoin(VIIRS_DIR, "viirs_perims_shapefile.shp"),
 }
 YEARS = list(range(2018, 2021))
-# GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
+GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
 DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS))
 BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS))
@@ -87,8 +87,7 @@ LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
 NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS))
 DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
 
-# NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
-NC_KEYSET = [DM_KEYS, BIOMASS_KEYS, NDVI_KEYS]
+NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
 TIF_KEYSET = [AW_KEYS, LANDFIRE_KEYS] 
 
 MTBS_DF_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
@@ -156,6 +155,9 @@ def netcdf_to_raster(path, date, nc_feature_name):
         nc_ds2 = nc_ds2.drop_vars(["lat", "lon", "time_bnds"])  # FOR DAYMET ONLY!!
         nc_ds = None # FOR DAYMET ONLY!!
         nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
+    elif nc_feature_name.startswith("biomass_"):
+        nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")
+        print(nc_ds2)
     else:
         nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")
 
@@ -169,6 +171,7 @@ def netcdf_to_raster(path, date, nc_feature_name):
         var_da = var_da.sel(day=date, method="nearest") # for GM
     else:
         var_da = var_da.sel(time=date, method="nearest") # for DM and BM and NDVI
+        print(var_da)
     if nc_feature_name.startswith("ndvi"):
         xrs = xr.DataArray(
             var_da.data, dims=("y", "x"), coords=(var_da.latitude.data, var_da.longitude.data)
@@ -179,7 +182,9 @@ def netcdf_to_raster(path, date, nc_feature_name):
         ).expand_dims("band") # For non-NDVI
     xrs["band"] = [1]
     # Set CRS in raster compliant format
-    xrs = xrs.rio.write_crs(nc_ds2.crs.spatial_ref)
+    xrs = xrs.rio.write_crs(nc_ds2.crs)#.spatial_ref)
+    print("XRS:")
+    print(xrs)
     return Raster(xrs)
 
 
@@ -461,16 +466,23 @@ if __name__ == "__main__":
     if 1:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(CHECKPOINT_2_PATH)
+            df = dgpd.read_parquet(CHECKPOINT_1_PATH)
 
         print("Columns: ", df.columns)
 
-        # loop to add all nc features
-        for nc_name in NC_KEYSET:
-            print(f"Adding {nc_name}")
+        # add biomass features
+        for biomass_name in BIOMASS_KEYS:
+            print(f"Adding {biomass_name}")
             df = add_columns_to_df(
-                df, nc_name, partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
+                df, [biomass_name], partition_extract_nc, CHECKPOINT_3_PATH, parallel=False
             )
+
+        # loop to add all nc features
+        # for nc_name in NC_KEYSET:
+        #     print(f"Adding {nc_name}")
+        #     df = add_columns_to_df(
+        #         df, nc_name, partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
+        #     )
         # loop to add all tif features
         # for tif_name in TIF_KEYSET:
         #     print(f"Adding {tif_name}")
