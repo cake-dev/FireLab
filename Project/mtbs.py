@@ -344,7 +344,7 @@ PATHS = {
     "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
     "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
 }
-YEARS = list(range(2018, 2021))
+YEARS = list(range(2019, 2020))
 GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) # added
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS)) # added
 DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) # added
@@ -356,6 +356,7 @@ DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) # added
 
 
 if __name__ == "__main__":
+    print(YEARS)
 
     # State borders
     print("Loading state borders")
@@ -391,7 +392,7 @@ if __name__ == "__main__":
 
     # print(year_to_mtbs_file)
 
-    mtbs_df_path = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
+    mtbs_df_path = pjoin(TMP_LOC, f"{STATE}_mtbs_0422.parquet")
     mtbs_df_temp_path = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
     checkpoint_1_path = pjoin(TMP_LOC, "check1")
     checkpoint_2_path = pjoin(TMP_LOC, "check2")
@@ -405,9 +406,6 @@ if __name__ == "__main__":
             STATE,
             out_path=mtbs_df_path,
         )
-        # df = add_columns_to_df(
-        #     df, GM_KEYS, partition_extract_gridmet, checkpoint_1_path
-        # )
         clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
         df = add_columns_to_df(
             df,
@@ -444,10 +442,10 @@ if __name__ == "__main__":
     if 1:
         with ProgressBar():
             df = dgpd.read_parquet(mtbs_df_temp_path)
-        # df = df.assign(hillshade=U8.type(0))
-        # df = df.map_partitions(hillshade_partition, 45, 180, meta=df._meta)
-        # df = df.assign(year=U16.type(0))
-        # df = df.map_partitions(timestamp_to_year_part, meta=df._meta)
+        df = df.assign(hillshade=U8.type(0))
+        df = df.map_partitions(hillshade_partition, 45, 180, meta=df._meta)
+        df = df.assign(year=U16.type(0))
+        df = df.map_partitions(timestamp_to_year_part, meta=df._meta)
 
         print(df.head())
 

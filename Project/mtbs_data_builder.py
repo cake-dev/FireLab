@@ -18,7 +18,7 @@ from dask.diagnostics import ProgressBar
 from rasterio.crs import CRS
 
 from raster_tools import Raster, Vector, open_vectors, clipping, zonal
-from raster_tools.dtypes import F32, U8, U16
+from raster_tools.dtypes import F32, U8, U16, F16
 
 # Filter out warnings from dask_geopandas and dask
 warnings.filterwarnings(
@@ -78,7 +78,7 @@ PATHS = {
     "viirs_root": VIIRS_DIR,
     "viirs_perim": pjoin(VIIRS_DIR, "viirs_perims_shapefile.shp"),
 }
-YEARS = list(range(2018, 2021))
+YEARS = list(range(2020, 2021))
 GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
 AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
 DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS))
@@ -157,7 +157,7 @@ def netcdf_to_raster(path, date, nc_feature_name):
         nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
     elif nc_feature_name.startswith("biomass_"):
         nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")
-        print(nc_ds2)
+        # print(nc_ds2)
     else:
         nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")
 
@@ -171,7 +171,7 @@ def netcdf_to_raster(path, date, nc_feature_name):
         var_da = var_da.sel(day=date, method="nearest") # for GM
     else:
         var_da = var_da.sel(time=date, method="nearest") # for DM and BM and NDVI
-        print(var_da)
+        # print(var_da)
     if nc_feature_name.startswith("ndvi"):
         xrs = xr.DataArray(
             var_da.data, dims=("y", "x"), coords=(var_da.latitude.data, var_da.longitude.data)
@@ -183,8 +183,8 @@ def netcdf_to_raster(path, date, nc_feature_name):
     xrs["band"] = [1]
     # Set CRS in raster compliant format
     xrs = xrs.rio.write_crs(nc_ds2.crs.spatial_ref)
-    print("XRS:")
-    print(xrs)
+    # print("XRS:")
+    # print(xrs)
     return Raster(xrs)
 
 
@@ -301,6 +301,7 @@ def _build_mtbs_df(
     dfs = []
     it = tqdm.tqdm(years, ncols=80, desc="MTBS")
     for y in it:
+        print(f"Processing {y}")
         mtbs_path = year_to_mtbs_file[y]
         if not os.path.exists(mtbs_path):
             it.write(f"No data for {y}")
@@ -434,7 +435,7 @@ if __name__ == "__main__":
         # print(year_to_mtbs_file)
 
 
-    if 0:
+    if 1:
         # code below for creating a new dataset for a new state / region
         df = build_mtbs_df(
             YEARS,
@@ -458,7 +459,7 @@ if __name__ == "__main__":
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
-            df.to_parquet(CHECKPOINT_2_PATH) 
+            df.to_parquet(CHECKPOINT_1_PATH) 
         df = None
 
     if 1:
@@ -468,11 +469,11 @@ if __name__ == "__main__":
 
         print("Columns: ", df.columns)
 
-        # add biomass features
-        for biomass_name in BIOMASS_KEYS:
-            print(f"Adding {biomass_name}")
+        # add daymet features
+        for dm_name in DM_KEYS:
+            print(f"Adding {dm_name}")
             df = add_columns_to_df(
-                df, [biomass_name], partition_extract_nc, CHECKPOINT_3_PATH, parallel=False
+                df, [dm_name], partition_extract_nc, CHECKPOINT_3_PATH, parallel=False
             )
 
         # loop to add all nc features
@@ -487,15 +488,25 @@ if __name__ == "__main__":
         #     df = add_columns_to_df(
         #         df, [tif_name], partition_extract_tif, CHECKPOINT_1_PATH, parallel=False
         #     )
+
         # add hillshade and year columns
-        df_meta = df._meta.copy()
         df = df.assign(hillshade=U8.type(0))
+        df_meta = df._meta.copy()
         df = df.map_partitions(hillshade_partition, 45, 180, meta=df_meta)
         df = df.assign(year=U16.type(0))
+        df_meta = df._meta.copy()
         df = df.map_partitions(timestamp_to_year_part, meta=df_meta)
+        df_meta = df._meta.copy()
         print("Columns: ", df.columns)
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         df = df.compute()
         with ProgressBar():
             df.to_parquet(MTBS_DF_TEMP_PATH)
+
+
+
+
+# LATEST NOTES (04/22/24)
+## I can set up the df with mtbs fires, dem, and dm data, as well as hillshade and year columns
+## Will try to add the other features in the next step
