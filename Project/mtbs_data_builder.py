@@ -469,11 +469,11 @@ if __name__ == "__main__":
 
         print("Columns: ", df.columns)
 
-        # add daymet features
-        for dm_name in DM_KEYS:
-            print(f"Adding {dm_name}")
+        # add ndvi features
+        for ndvi_name in NDVI_KEYS:
+            print(f"Adding {ndvi_name}")
             df = add_columns_to_df(
-                df, [dm_name], partition_extract_nc, CHECKPOINT_3_PATH, parallel=False
+                df, [ndvi_name], partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
             )
 
         # loop to add all nc features
