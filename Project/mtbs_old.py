@@ -24,15 +24,71 @@ warnings.filterwarnings(
     "ignore", message=".*Slicing is producing a large chunk.*"
 )
 
-
 # Location for temporary storage
-TMP_LOC = "/mnt/fastdata01"
+TMP_LOC = "/home/jake/FireLab/Project/data/temp/"
+DATA_LOC = "/home/jake/FireLab/Project/data/"
+
+STATE = "OR"
+
+# Location of clipped DEM files
+DEM_DATA_DIR = pjoin(TMP_LOC, "dem_data")
+
+# location of feature data files
+FEATURE_DIR = pjoin(DATA_LOC, "FeatureData")
+EDNA_DIR = pjoin(DATA_LOC, "terrain")
+MTBS_DIR = pjoin(DATA_LOC, "MTBS_Data")
+
+PATHS = {
+    "states": pjoin(EDNA_DIR, "state_borders/cb_2018_us_state_5m.shp"),
+    "dem": pjoin(EDNA_DIR, "us_orig_dem/us_orig_dem/orig_dem/hdr.adf"),
+    # "dem_slope": pjoin(EDNA_DIR, "us_slope/us_slope/slope/hdr.adf"),
+    # "dem_aspect": pjoin(EDNA_DIR, "us_aspect/aspect/hdr.adf"),
+    # "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/us_flow_acc/flow_acc/hdr.adf"),
+    "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_1986_2020_weekly.nc"),
+    "gm_vpd": pjoin(FEATURE_DIR, "gridmet/vpd_1986_2020_weekly.nc"),
+    "aw_mat": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MAT.tif"),
+    "aw_mcmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MCMT.tif"),
+    "aw_mwmt": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MWMT.tif"),
+    "aw_td": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_TD.tif"),
+    "dm_tmax": pjoin(FEATURE_DIR, "daymet/tmax_1986_2020.nc"),
+    "dm_tmin": pjoin(FEATURE_DIR, "daymet/tmin_1986_2020.nc"),
+    "biomass_afg": pjoin(
+        FEATURE_DIR, "biomass/biomass_afg_1986_2020_{}.nc".format(STATE)
+    ),
+    "biomass_pfg": pjoin(
+        FEATURE_DIR, "biomass/biomass_pfg_1986_2020_{}.nc".format(STATE)
+    ),
+    "landfire_fvt": pjoin(
+        FEATURE_DIR, "landfire/LF2020_FVT_200_CONUS/Tif/LC20_FVT_200.tif"
+    ),
+    "landfire_fbfm40": pjoin(
+        FEATURE_DIR, "landfire/LF2020_FBFM40_200_CONUS/Tif/LC20_F40_200.tif"
+    ),
+    "ndvi": pjoin(FEATURE_DIR, "ndvi/access/weekly/ndvi_1986_2020_weekavg.nc"),
+    "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
+    "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
+}
+YEARS = [2020]
+GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) 
+AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS)) 
+DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) 
+BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS)) 
+LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS)) 
+NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS)) 
+DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) 
 
 
 def get_gridmet_var_name(ds):
     # Find the data variable in a gridmet xarray.Dataset
     var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
     return var_name
+
+def extract_date_from_fire_id_part(df):
+    # Assuming 'fire_id' is the column with timestamp data
+    df['ig_date'] = df['fire_id'].str[-8:]
+    df['ig_date'] = dd.to_datetime(df['ig_date'], format='%Y%m%d')
+    df['ig_date'] = df['ig_date'].dt.date
+    return df
 
 
 def netcdf_to_raster(path, date):
@@ -66,7 +122,7 @@ def extract_gridmet_data(df, gm_name):
         df = gpd.GeoDataFrame(df)
     feat = Vector(df, len(df))
     rdf = (
-        zonal.point_extraction(feat, rs, skip_validation=True)
+        zonal.extract_points_eager(feat, rs, skip_validation=True)
         .drop(columns=["band"])
         .rename(columns={"extracted": gm_name})
         .compute()
@@ -88,7 +144,7 @@ def extract_dem_data(df, key):
         df = gpd.GeoDataFrame(df)
     feat = Vector(df, len(df))
     rdf = (
-        zonal.point_extraction(feat, rs, skip_validation=True)
+        zonal.extract_points_eager(feat, rs, skip_validation=True) # COULD BE SCRAMBLERD HERE CHECK ORDER
         .drop(columns=["band"])
         .compute()
     )
@@ -123,6 +179,18 @@ def clip_and_save_dem_rasters(keys, paths, feature, state):
 def build_mtbs_year_df(path, perims_df, state_label):
     rs = Raster(path)
     dfs = []
+    # for grp in perims_df.groupby("Event_ID"):
+    #     event_id, perim = grp
+    #     df = (
+    #         clipping.clip(perim, rs)
+    #         .to_vector()
+    #         .rename(columns={"value": "mtbs"})
+    #         .drop(columns=["band", "row", "col"])
+    #         .assign(state=state_label, fire_id=event_id)
+    #         .astype({"mtbs": U8})
+    #     )
+    #     dfs.append(df)
+    # return dd.concat(dfs)
     for grp in perims_df.groupby("Ig_Date"):
         date, perim = grp
         df = (
@@ -222,41 +290,6 @@ def add_columns_to_df(
     return dgpd.read_parquet(out_path)
 
 
-# Location of clipped DEM files
-DEM_DATA_DIR = pjoin(TMP_LOC, "dem_data")
-FIRE_DIR = "/mnt/data02/fire/"
-GRIDMET_DIR = pjoin(FIRE_DIR, "gridmet")
-EDNA_DIR = pjoin(FIRE_DIR, "edna")
-MTBS_DIR = pjoin(FIRE_DIR, "mtbs")
-
-PATHS = {
-    "states": pjoin(FIRE_DIR, "state_borders/cb_2018_us_state_5m.shp"),
-    "dem": pjoin(EDNA_DIR, "us_orig_dem/orig_dem/hdr.adf"),
-    "dem_slope": pjoin(EDNA_DIR, "us_slope/slope/hdr.adf"),
-    "dem_aspect": pjoin(EDNA_DIR, "us_aspect/aspect/hdr.adf"),
-    "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/flow_acc/hdr.adf"),
-    "dem_flow_dir": pjoin(EDNA_DIR, "us_flow_dir/flow_dir/hdr.adf"),
-    "gm_fm100": pjoin(GRIDMET_DIR, "fm100/fm100_weekly.nc"),
-    "gm_fm1000": pjoin(GRIDMET_DIR, "fm1000/fm1000_weekly.nc"),
-    "gm_pdsi": pjoin(GRIDMET_DIR, "pdsi/pdsi_weekly.nc"),
-    "gm_pdsi_cat": pjoin(GRIDMET_DIR, "pdsi_cat/pdsi_cat_weekly.nc"),
-    "gm_pr": pjoin(GRIDMET_DIR, "pr/pr_weekly.nc"),
-    "gm_rmax": pjoin(GRIDMET_DIR, "rmax/rmax_weekly.nc"),
-    "gm_rmin": pjoin(GRIDMET_DIR, "rmin/rmin_weekly.nc"),
-    "gm_srad": pjoin(GRIDMET_DIR, "srad/srad_weekly.nc"),
-    "gm_th": pjoin(GRIDMET_DIR, "th/th_weekly.nc"),
-    "gm_tmmn": pjoin(GRIDMET_DIR, "tmmn/tmmn_weekly.nc"),
-    "gm_tmmx": pjoin(GRIDMET_DIR, "tmmx/tmmx_weekly.nc"),
-    "gm_vs": pjoin(GRIDMET_DIR, "vs/vs_weekly.nc"),
-    "mtbs_root": pjoin(FIRE_DIR, "MTBS_BSmosaics/"),
-    "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp")
-}
-YEARS = list(range(1984, 2021))
-GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
-DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
-
-STATE = "MT"
-
 
 if __name__ == "__main__":
 
@@ -286,13 +319,15 @@ if __name__ == "__main__":
     state_fire_perims = None
 
     year_to_mtbs_file = {
-        y: pjoin(pjoin(PATHS["mtbs_root"], str(y)), f"mtbs_{STATE}_{y}.tif")
+        y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
         for y in YEARS
     }
 
-    mtbs_df_path = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
+    mtbs_df_path = pjoin(TMP_LOC, f"{STATE}_mtbs_NEW.parquet")
+    mtbs_df_temp_path = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
     checkpoint_1_path = pjoin(TMP_LOC, "check1")
     checkpoint_2_path = pjoin(TMP_LOC, "check2")
+    checkpoint_3_path = pjoin(TMP_LOC, "check3")
 
     if 1:
         df = build_mtbs_df(
@@ -300,7 +335,7 @@ if __name__ == "__main__":
             year_to_mtbs_file,
             year_to_perims,
             STATE,
-            out_path=mtbs_df_path,
+            out_path=mtbs_df_temp_path,
         )
         df = add_columns_to_df(
             df, GM_KEYS, partition_extract_gridmet, checkpoint_1_path
@@ -312,15 +347,19 @@ if __name__ == "__main__":
 
     if 1:
         df = dgpd.read_parquet(checkpoint_2_path)
-        clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
+        # clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
         df = add_columns_to_df(
             df,
             DEM_KEYS,
             extract_dem_data,
-            "/mnt/data02/fire/mtbs_labeled_predictors",
+            checkpoint_3_path,
             # Save results in serial to avoid segfaulting. Something about the
             # dem computations makes segfaults extremely likely when saving
             # The computations require a lot of memory which may be what
             # triggers the fault.
             parallel=False,
         )
+        df = df.repartition(partition_size="100MB").reset_index(drop=True)
+        print("Repartitioning")
+        with ProgressBar():
+            df.to_parquet(mtbs_df_path)

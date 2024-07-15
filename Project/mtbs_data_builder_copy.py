@@ -219,6 +219,7 @@ def extract_dem_data(df, key):
     state = df.state.values[0]
     path = get_state_dem_path(key, state)
     rs = Raster(path)
+    rs = rs.reproject(5071)
     if type(df) == pd.DataFrame:
         df = gpd.GeoDataFrame(df)
     feat = Vector(df, len(df))
@@ -274,13 +275,15 @@ def clip_and_save_dem_rasters(keys, paths, feature, state):
         if os.path.exists(out_path):
             continue
         rs = Raster(path)
-        (bounds,) = dask.compute(feature.to_crs(rs.crs).total_bounds)
+        (bounds,) = dask.compute(feature.to_crs(5071).total_bounds) # CHANGED
         crs = clipping.clip_box(rs, bounds)
         crs.save(out_path)
 
 
 def build_mtbs_year_df(path, perims_df, state_label):
     rs = Raster(path)
+    # change raster crs to 5071
+    rs = rs.reproject(5071)
     dfs = []
     for grp in perims_df.groupby("Ig_Date"):
         date, perim = grp
@@ -407,10 +410,6 @@ if __name__ == "__main__":
         # MTBS Perimeters
         print("Loading MTBS perimeters")
         perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
-        # print("Loading VIIRS perimeters")
-        # perimdf = open_vectors(PATHS["viirs_perim"]).data.to_crs("EPSG:5071")
-        # perimdf = dgpd.read_parquet(DATA_LOC + "viirs_perims.parquet").compute().to_crs("EPSG:5071")
-        # perimdf = perimdf.rename(columns={"t": "Ig_Date"})
         state_fire_perims = perimdf.clip(state_shape.compute())
         state_fire_perims = (
             state_fire_perims.assign(
@@ -421,7 +420,7 @@ if __name__ == "__main__":
             .sort_values("Ig_Date")
             .compute()
         )
-        state_fire_perims = state_fire_perims[state_fire_perims.Ig_Date.dt.year.between(2018, 2020)]
+        state_fire_perims = state_fire_perims[state_fire_perims.Ig_Date.dt.year.between(2020, 2021)]
         year_to_perims = {
             y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
             for y in YEARS

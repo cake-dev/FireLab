@@ -1,8 +1,8 @@
 import os
-import time
 import tempfile
 import warnings
 from os.path import join as pjoin
+import logging
 
 import dask
 import dask.dataframe as dd
@@ -18,7 +18,7 @@ from dask.diagnostics import ProgressBar
 from rasterio.crs import CRS
 
 from raster_tools import Raster, Vector, open_vectors, clipping, zonal
-from raster_tools.dtypes import F32, U8, U16, F16
+from raster_tools.dtypes import F32, U8, U16
 
 # Filter out warnings from dask_geopandas and dask
 warnings.filterwarnings(
@@ -28,11 +28,17 @@ warnings.filterwarnings(
     "ignore", message=".*Slicing is producing a large chunk.*"
 )
 
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    filename="mtbs_eventid.log",
+)
+logger = logging.getLogger(__name__)
+
 
 # Location for temporary storage
 TMP_LOC = "/home/jake/FireLab/Project/data/temp/"
-TMP_LOC2 = "/home/jake/FireLab/Project/data/temp2/"
-TMP_LOC3 = "/home/jake/FireLab/Project/data/temp3/"
 DATA_LOC = "/home/jake/FireLab/Project/data/"
 
 STATE = "OR"
@@ -44,14 +50,13 @@ DEM_DATA_DIR = pjoin(TMP_LOC, "dem_data")
 FEATURE_DIR = pjoin(DATA_LOC, "FeatureData")
 EDNA_DIR = pjoin(DATA_LOC, "terrain")
 MTBS_DIR = pjoin(DATA_LOC, "MTBS_Data")
-VIIRS_DIR = pjoin(DATA_LOC, "viirs_data")
 
 PATHS = {
     "states": pjoin(EDNA_DIR, "state_borders/cb_2018_us_state_5m.shp"),
     "dem": pjoin(EDNA_DIR, "us_orig_dem/us_orig_dem/orig_dem/hdr.adf"),
-    "dem_slope": pjoin(EDNA_DIR, "us_slope/us_slope/slope/hdr.adf"),
-    "dem_aspect": pjoin(EDNA_DIR, "us_aspect/aspect/hdr.adf"),
-    "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/us_flow_acc/flow_acc/hdr.adf"),
+    # "dem_slope": pjoin(EDNA_DIR, "us_slope/us_slope/slope/hdr.adf"),
+    # "dem_aspect": pjoin(EDNA_DIR, "us_aspect/aspect/hdr.adf"),
+    # "dem_flow_acc": pjoin(EDNA_DIR, "us_flow_acc/us_flow_acc/flow_acc/hdr.adf"),
     "gm_srad": pjoin(FEATURE_DIR, "gridmet/srad_1986_2020_weekly.nc"),
     "gm_vpd": pjoin(FEATURE_DIR, "gridmet/vpd_1986_2020_weekly.nc"),
     "aw_mat": pjoin(FEATURE_DIR, "adaptwest/Normal_1991_2020_MAT.tif"),
@@ -75,29 +80,15 @@ PATHS = {
     "ndvi": pjoin(FEATURE_DIR, "ndvi/access/weekly/ndvi_1986_2020_weekavg.nc"),
     "mtbs_root": pjoin(MTBS_DIR, "MTBS_BSmosaics/"),
     "mtbs_perim": pjoin(MTBS_DIR, "mtbs_perimeter_data/mtbs_perims_DD.shp"),
-    "viirs_root": VIIRS_DIR,
-    "viirs_perim": pjoin(VIIRS_DIR, "viirs_perims_shapefile.shp"),
 }
-YEARS = list(range(2020, 2021))
-GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS))
-AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS))
-DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS))
-BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS))
-LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS))
-NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS))
-DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS))
-
-NC_KEYSET = set(GM_KEYS + DM_KEYS + BIOMASS_KEYS + NDVI_KEYS)
-TIF_KEYSET = [AW_KEYS, LANDFIRE_KEYS] 
-
-MTBS_DF_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs.parquet")
-MTBS_DF_PARQUET_PATH_NEW = pjoin(TMP_LOC, f"{STATE}_mtbs_new.parquet")
-MTBS_DF_TEMP_PATH = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
-MTBS_DF_TEMP_PATH_2 = pjoin(TMP_LOC, f"{STATE}_mtbs_temp_2.parquet")
-CHECKPOINT_1_PATH = pjoin(TMP_LOC, "check1")
-CHECKPOINT_2_PATH = pjoin(TMP_LOC, "check2")
-CHECKPOINT_3_PATH = pjoin(TMP_LOC, "check3")
-CHECKPOINT_4_PATH = pjoin(TMP_LOC, "check4")
+YEARS = [2020]
+GM_KEYS = list(filter(lambda x: x.startswith("gm_"), PATHS)) 
+AW_KEYS = list(filter(lambda x: x.startswith("aw_"), PATHS)) 
+DM_KEYS = list(filter(lambda x: x.startswith("dm_"), PATHS)) 
+BIOMASS_KEYS = list(filter(lambda x: x.startswith("biomass_"), PATHS)) 
+LANDFIRE_KEYS = list(filter(lambda x: x.startswith("landfire_"), PATHS)) 
+NDVI_KEYS = list(filter(lambda x: x.startswith("ndvi"), PATHS)) 
+DEM_KEYS = list(filter(lambda x: x.startswith("dem"), PATHS)) 
 
 def hillshade(slope, aspect, azimuth=180, zenith=45):
     # Convert angles from degrees to radians
@@ -124,67 +115,65 @@ def hillshade_partition(df, zenith, azimuth):
     df['hillshade'] = hillshade(df['dem_slope'], df['dem_aspect'], azimuth, zenith)
     return df
 
+def extract_date_from_fire_id_part(df):
+    # Assuming 'fire_id' is the column with timestamp data
+    df['ig_date'] = df['fire_id'].str[-8:]
+    df['ig_date'] = dd.to_datetime(df['ig_date'], format='%Y%m%d')
+    df['ig_date'] = df['ig_date'].dt.date
+    return df
+
 def timestamp_to_year_part(df):
     # Assuming 'ig_date' is the column with timestamp data
     df['year'] = df['ig_date'].dt.year
     return df
 
-def get_nc_var_name(ds, nc_feat_name):
+
+def get_nc_var_name(ds):
     # Find the data variable in a nc xarray.Dataset
-    if nc_feat_name.startswith("dm"):
-        var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[0] # for DAYMET ONLY!!
-    else:
-        var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
+    var_name = list(set(ds.keys()) - set(["crs", "day_bnds"]))[0]
+    # var_name = list(set(ds.keys()) - set(["crs", "bnds"]))[1] # for DAYMET ONLY!!
     return var_name
 
 
-def netcdf_to_raster(path, date, nc_feature_name):
+def netcdf_to_raster(path, date):
     # This produces a Dataset. We need to grab the DataArray inside that
     # contains the data of interest.
     nc_ds = xr.open_dataset(path, chunks={"day": 1})#, decode_times=False)
-    if nc_feature_name == "ndvi":
-        nc_ds2 = nc_ds.drop_vars(
+    nc_ds2 = nc_ds.drop_vars(
         ["latitude_bnds", "longitude_bnds", "time_bnds"]
-        ).rio.write_crs("EPSG:5071") # FOR NDVI ONLY!!
-    elif nc_feature_name.startswith("dm_"):
-        nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")  # FOR DAYMET ONLY!!
-        # nc_ds = nc_ds.rio.write_crs(
-        #     nc_ds.coords["lambert_conformal_conic"].spatial_ref
-        # )  # FOR DAYMET ONLY!!
-        nc_ds2 = nc_ds2.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
-        nc_ds2 = nc_ds2.drop_vars(["lat", "lon", "time_bnds"])  # FOR DAYMET ONLY!!
-        nc_ds = None # FOR DAYMET ONLY!!
-        nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
-    elif nc_feature_name.startswith("biomass_"):
-        nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")
-        # print(nc_ds2)
-    else:
-        nc_ds2 = nc_ds.rio.write_crs("EPSG:5071")
-
+    ).rio.write_crs("EPSG:5070") # FOR NDVI ONLY!!
+    # nc_ds2 = nc_ds.rio.write_crs("EPSG:5070")  # FOR DAYMET ONLY!!
+    # nc_ds = nc_ds.rio.write_crs(
+    #     nc_ds.coords["lambert_conformal_conic"].spatial_ref
+    # )  # FOR DAYMET ONLY!!
+    # nc_ds = nc_ds.rename({"lambert_conformal_conic": "crs"})  # FOR DAYMET ONLY!!
+    # nc_ds2 = nc_ds.drop_vars(["lat", "lon"])  # FOR DAYMET ONLY!!
+    # nc_ds = None # FOR DAYMET ONLY!!
+    # nc_ds2 = nc_ds2.rename_vars({"x": "lon", "y": "lat"})  # FOR DAYMET ONLY!!
+    # comment lines below for normal operation
+    #ds_crs = CRS.from_epsg(5070) dont need this line
+    #nc_ds.rio.write_crs(ds_crs) dont need this line
+    # nc_ds2 = nc_ds.rio.write_crs(nc_ds.crs.spatial_ref)
+    # nc_ds2 = nc_ds.rio.write_crs(nc_ds.crs) # for NDVI
+    # print nc_ds dimensions
+    # print(f"{nc_ds.dims = }")
     # Find variable name
-    var_name = get_nc_var_name(nc_ds2, nc_feature_name)
+    var_name = get_nc_var_name(nc_ds2)
     # print(f"var_name: {var_name}")
     # Extract
     var_da = nc_ds2[var_name]
     # print(f"{var_da = }")
-    if nc_feature_name.startswith("gm_"):
-        var_da = var_da.sel(day=date, method="nearest") # for GM
-    else:
-        var_da = var_da.sel(time=date, method="nearest") # for DM and BM and NDVI
-        # print(var_da)
-    if nc_feature_name.startswith("ndvi"):
-        xrs = xr.DataArray(
-            var_da.data, dims=("y", "x"), coords=(var_da.latitude.data, var_da.longitude.data)
-        ).expand_dims("band") # FOR NDVI ONLY!!
-    else:
-        xrs = xr.DataArray(
-            var_da.data, dims=("y", "x"), coords=(var_da.lat.data, var_da.lon.data)
-        ).expand_dims("band") # For non-NDVI
+    var_da = var_da.sel(time=date, method="nearest") # for DM and BM and NDVI
+    # var_da = var_da.sel(day=date, method="nearest") # for GM
+    # xrs = xr.DataArray(
+    #     var_da.data, dims=("y", "x"), coords=(var_da.lat.data, var_da.lon.data)
+    # ).expand_dims("band") # For non-NDVI
+    xrs = xr.DataArray(
+        var_da.data, dims=("y", "x"), coords=(var_da.latitude.data, var_da.longitude.data)
+    ).expand_dims("band") # FOR NDVI ONLY!!
     xrs["band"] = [1]
     # Set CRS in raster compliant format
     xrs = xrs.rio.write_crs(nc_ds2.crs.spatial_ref)
-    # print("XRS:")
-    # print(xrs)
     return Raster(xrs)
 
 
@@ -193,9 +182,8 @@ def extract_nc_data(df, nc_name):
     # print(f"{gm_name}: {df.columns = }, {len(df) = }")
     date = df.ig_date.values[0]
     print(f"{nc_name}: starting {date}")
-    rs = netcdf_to_raster(PATHS[nc_name], date, nc_name)
+    rs = netcdf_to_raster(PATHS[nc_name], date)
     bounds = gpd.GeoSeries(df.geometry).to_crs(rs.crs).total_bounds
-    print(f"{nc_name}: {bounds = }")
     rs = clipping.clip_box(rs, bounds)
     if type(df) == pd.DataFrame:
         df = gpd.GeoDataFrame(df)
@@ -223,7 +211,7 @@ def extract_dem_data(df, key):
         df = gpd.GeoDataFrame(df)
     feat = Vector(df, len(df))
     rdf = (
-        zonal.extract_points_eager(feat, rs, skip_validation=True)
+        zonal.extract_points_eager(feat, rs, skip_validation=True) # COULD BE SCRAMBLERD HERE CHECK ORDER
         .drop(columns=["band"])
         .compute()
     )
@@ -282,15 +270,17 @@ def clip_and_save_dem_rasters(keys, paths, feature, state):
 def build_mtbs_year_df(path, perims_df, state_label):
     rs = Raster(path)
     dfs = []
-    for grp in perims_df.groupby("Ig_Date"):
-        date, perim = grp
+    for grp in perims_df.groupby("Event_ID"):
+        print(f"Processing {grp}")
+        event_id, perim = grp
+        # date = perim['Ig_Date'].iloc[0]  # TODO mnultiuple event ids per date FIXED: groupby event_id
         df = (
             clipping.clip(perim, rs)
             .to_vector()
             .rename(columns={"value": "mtbs"})
             .drop(columns=["band", "row", "col"])
-            .assign(state=state_label, ig_date=date)
-            .astype({"mtbs": U8})
+            .assign(state=state_label, fire_id=event_id)#, ig_date=date)
+            .astype({"mtbs": U8})#, "event_id": str, "state": str})
         )
         dfs.append(df)
     return dd.concat(dfs)
@@ -302,7 +292,6 @@ def _build_mtbs_df(
     dfs = []
     it = tqdm.tqdm(years, ncols=80, desc="MTBS")
     for y in it:
-        print(f"Processing {y}")
         mtbs_path = year_to_mtbs_file[y]
         if not os.path.exists(mtbs_path):
             it.write(f"No data for {y}")
@@ -313,7 +302,8 @@ def _build_mtbs_df(
         ydf.compute().to_parquet(ypath)
         ydf = dgpd.read_parquet(ypath)
         dfs.append(ydf)
-    return dd.concat(dfs)
+    combined_df = dd.concat(dfs)
+    return combined_df
 
 
 def build_mtbs_df(
@@ -324,10 +314,10 @@ def build_mtbs_df(
         df = _build_mtbs_df(
             years, year_to_mtbs_file, year_to_perims, state, working_dir
         )
-        print("built df: ", df.head())
         with ProgressBar():
             df.to_parquet(out_path)
-    return dgpd.read_parquet(out_path)
+    out_df = dgpd.read_parquet(out_path)
+    return out_df
 
 
 def add_columns_to_df(
@@ -338,33 +328,43 @@ def add_columns_to_df(
     col_type=F32,
     col_default=np.nan,
     part_func_args=(),
-    # tmp_loc=TMP_LOC,
-    tmp_loc=TMP_LOC2,
+    tmp_loc=TMP_LOC,
     parallel=True,
 ):
     print(f"Adding columns: {columns}")
-    print('Existing columns: ', df.columns)
     # Add columns
     expanded_df = df.assign(**{c: col_type.type(col_default) for c in columns})
-    # show expanded_df
-    print('Expanded columns: ', expanded_df.columns)
     with tempfile.TemporaryDirectory(dir=tmp_loc) as working_dir:
         # Save to disk before applying partition function. to_parquet() has a
         # chance of segfaulting and that chance goes WAY up after adding
         # columns and then mapping a function to partitions. Saving to disk
         # before mapping keeps the odds low.
         path = pjoin(working_dir, "expanded")
+        print("--expanded df in add_columns_to_df---------------")
         print(expanded_df.head())
-        # reset the index to fix keyerror not in index
-        # expanded_df = expanded_df.reset_index()
-        expanded_df.to_parquet(path)
+        # print("expanded df dtypes: ", expanded_df.dtypes)
+        # print("-----------------")
+        # show index
+        # print("expanded df index: ", expanded_df.index.compute())
+        print("----------------------")
+        # print(expanded_df._meta)
 
+        for i,p in enumerate(expanded_df.partitions):
+            print("part {}".format(i))
+            print(p.head())
+
+        expanded_df.to_parquet(path)
+        
         expanded_df = dgpd.read_parquet(path)
         meta = expanded_df._meta.copy()
         for c in columns:
             expanded_df = expanded_df.map_partitions(
                 part_func, c, *part_func_args, meta=meta
             )
+
+        print("--expanded df after map_partitions---------------")
+        print(expanded_df.head())
+        print("-----------------")
 
         if parallel:
             with ProgressBar():
@@ -386,55 +386,53 @@ def add_columns_to_df(
                 # Assemble and save to final output location
                 expanded_df = dd.concat(dfs)
                 with ProgressBar():
+                    print("Saving expanded_df to final location")
                     expanded_df.to_parquet(out_path)
     return dgpd.read_parquet(out_path)
 
 
-
-### MAIN ###
-
 if __name__ == "__main__":
+    print(YEARS)
 
-    if 1:
-        # State borders
-        print("Loading state borders")
-        stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5071")
-        states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
-        state_shape = states[STATE]
-        states = None
-        stdf = None
+    # State borders
+    print("Loading state borders")
+    stdf = open_vectors(PATHS["states"], 0).data.to_crs("EPSG:5070")
+    states = {st: stdf[stdf.STUSPS == st].geometry for st in list(stdf.STUSPS)}
+    state_shape = states[STATE]
+    states = None
+    stdf = None
 
-        # MTBS Perimeters
-        print("Loading MTBS perimeters")
-        perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5071")
-        # print("Loading VIIRS perimeters")
-        # perimdf = open_vectors(PATHS["viirs_perim"]).data.to_crs("EPSG:5071")
-        # perimdf = dgpd.read_parquet(DATA_LOC + "viirs_perims.parquet").compute().to_crs("EPSG:5071")
-        # perimdf = perimdf.rename(columns={"t": "Ig_Date"})
-        state_fire_perims = perimdf.clip(state_shape.compute())
-        state_fire_perims = (
-            state_fire_perims.assign(
-                Ig_Date=lambda frame: dd.to_datetime(
-                    frame.Ig_Date, format="%Y-%m-%d"
-                )
+    # MTBS Perimeters
+    print("Loading MTBS perimeters")
+    perimdf = open_vectors(PATHS["mtbs_perim"]).data.to_crs("EPSG:5070")
+    state_fire_perims = perimdf.clip(state_shape.compute())
+    state_fire_perims = (
+        state_fire_perims.assign(
+            Ig_Date=lambda frame: dd.to_datetime(
+                frame.Ig_Date, format="%Y-%m-%d"
             )
-            .sort_values("Ig_Date")
-            .compute()
         )
-        state_fire_perims = state_fire_perims[state_fire_perims.Ig_Date.dt.year.between(2018, 2020)]
-        year_to_perims = {
-            y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
-            for y in YEARS
-        }
-        state_fire_perims = None
+        .sort_values("Ig_Date")
+        .compute()
+    )
+    year_to_perims = {
+        y: state_fire_perims[state_fire_perims.Ig_Date.dt.year == y]
+        for y in YEARS
+    }
+    state_fire_perims = None
 
-        year_to_mtbs_file = {
-            y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
-            for y in YEARS
-        }
+    year_to_mtbs_file = {
+        y: pjoin(PATHS["mtbs_root"], f"mtbs_{STATE}_{y}.tif")
+        for y in YEARS
+    }
 
-        # print(year_to_mtbs_file)
+    # print(year_to_mtbs_file)
 
+    mtbs_df_path = pjoin(TMP_LOC, f"{STATE}_mtbs_NEW.parquet")
+    mtbs_df_temp_path = pjoin(TMP_LOC, f"{STATE}_mtbs_temp.parquet")
+    checkpoint_1_path = pjoin(TMP_LOC, "check1")
+    checkpoint_2_path = pjoin(TMP_LOC, "check2")
+    checkpoint_3_path = pjoin(TMP_LOC, "check3")
 
     if 1:
         # code below for creating a new dataset for a new state / region
@@ -443,14 +441,17 @@ if __name__ == "__main__":
             year_to_mtbs_file,
             year_to_perims,
             STATE,
-            out_path=CHECKPOINT_1_PATH,
+            out_path=checkpoint_1_path,
         )
-        clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE)
+        # clip_and_save_dem_rasters(DEM_KEYS, PATHS, state_shape, STATE) uncomment for new state
+        print("--df after build_mtbs_df---------------")
+        print(df.head())
+        print("-----------------")
         df = add_columns_to_df(
             df,
             DEM_KEYS,
             extract_dem_data,
-            CHECKPOINT_1_PATH,
+            checkpoint_3_path,
             # Save results in serial to avoid segfaulting. Something about the
             # dem computations makes segfaults extremely likely when saving
             # The computations require a lot of memory which may be what
@@ -460,54 +461,43 @@ if __name__ == "__main__":
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
         with ProgressBar():
-            df.to_parquet(CHECKPOINT_1_PATH) 
-        df = None
+            df.to_parquet(checkpoint_2_path)
 
-    if 1:
+    if 0:
         # code below used to add new features to the dataset
         with ProgressBar():
-            df = dgpd.read_parquet(CHECKPOINT_1_PATH)
-
-        print("Columns: ", df.columns)
-
-        # add ndvi features
-        for ndvi_name in NDVI_KEYS:
-            print(f"Adding {ndvi_name}")
-            df = add_columns_to_df(
-                df, [ndvi_name], partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
-            )
-
-        # loop to add all nc features
-        # for nc_name in NC_KEYSET:
-        #     print(f"Adding {nc_name}")
-        #     df = add_columns_to_df(
-        #         df, nc_name, partition_extract_nc, CHECKPOINT_1_PATH, parallel=False
-        #     )
-        # loop to add all tif features
-        # for tif_name in TIF_KEYSET:
-        #     print(f"Adding {tif_name}")
-        #     df = add_columns_to_df(
-        #         df, [tif_name], partition_extract_tif, CHECKPOINT_1_PATH, parallel=False
-        #     )
-
-        # add hillshade and year columns
-        df = df.assign(hillshade=U8.type(0))
-        df_meta = df._meta.copy()
-        df = df.map_partitions(hillshade_partition, 45, 180, meta=df_meta)
-        df = df.assign(year=U16.type(0))
-        df_meta = df._meta.copy()
-        df = df.map_partitions(timestamp_to_year_part, meta=df_meta)
-        df_meta = df._meta.copy()
-        print("Columns: ", df.columns)
+            df = dgpd.read_parquet(checkpoint_2_path)
+        # df = add_columns_to_df(
+        #     df, NDVI_KEYS, partition_extract_nc, checkpoint_1_path, parallel=False
+        # ) #for NC data
+        df = add_columns_to_df(
+            df, LANDFIRE_KEYS, partition_extract_tif, checkpoint_1_path, parallel=False
+        ) # for TIF data
         df = df.repartition(partition_size="100MB").reset_index(drop=True)
         print("Repartitioning")
-        df = df.compute()
         with ProgressBar():
-            df.to_parquet(MTBS_DF_TEMP_PATH)
+            df.to_parquet(mtbs_df_temp_path)
+        df = None
 
+    if 0:
+        with ProgressBar():
+            # df = dgpd.read_parquet(mtbs_df_temp_path)
+            df = dgpd.read_parquet(checkpoint_2_path)
+        df = df.assign(hillshade=U8.type(0))
+        df = df.map_partitions(hillshade_partition, 45, 180, meta=df._meta)
+        # add timestamp ig_date
+        df = df.assign(ig_date=str)
+        df = df.map_partitions(extract_date_from_fire_id_part, meta=df._meta)
+        # df = df.assign(year=U16.type(0))
+        # df = df.map_partitions(timestamp_to_year_part, meta=df._meta)
 
+        print(df.head())
 
+        print("Repartitioning and saving ")
+        df = df.repartition(partition_size="100MB").reset_index(drop=True)
+        # df = df.assign(unique_id=str) does not work, added outside of dask
+        # df = df.map_partitions(add_unique_identifier, meta=df._meta)
+        with ProgressBar():
+            # df.to_parquet(mtbs_df_temp_path)
+            df.to_parquet(mtbs_df_path)
 
-# LATEST NOTES (04/22/24)
-## I can set up the df with mtbs fires, dem, and dm data, as well as hillshade and year columns
-## Will try to add the other features in the next step
